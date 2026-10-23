@@ -1,0 +1,173 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
+import '../../domain/models/chat_message.dart';
+import 'reasoning_foldout.dart';
+
+class MessageBubble extends StatelessWidget {
+  final ChatMessage message;
+
+  const MessageBubble({super.key, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isUser = message.role == MessageRole.user;
+    final isStreaming = message.status == MessageStatus.streaming;
+    final hasError = message.status == MessageStatus.error;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Column(
+        crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!isUser) ...[
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: theme.colorScheme.primaryContainer,
+                  child: Icon(Icons.auto_awesome, size: 16, color: theme.colorScheme.primary),
+                ),
+                const SizedBox(width: 10),
+              ],
+              Flexible(
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.85,
+                  ),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isUser ? 16 : 14,
+                    vertical: isUser ? 10 : 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isUser
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(18),
+                      topRight: const Radius.circular(18),
+                      bottomLeft: Radius.circular(isUser ? 18 : 4),
+                      bottomRight: Radius.circular(isUser ? 4 : 18),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Reasoning / CoT thinking box
+                      if (message.reasoning != null && message.reasoning!.isNotEmpty)
+                        ReasoningFoldout(
+                          reasoning: message.reasoning!,
+                          isStreaming: isStreaming && message.content.isEmpty,
+                        ),
+
+                      // Streaming indicator when starting
+                      if (isStreaming && message.content.isEmpty && (message.reasoning == null || message.reasoning!.isEmpty))
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: isUser ? theme.colorScheme.onPrimary : theme.colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Thinking...',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isUser ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        )
+                      else if (isUser)
+                        SelectableText(
+                          message.content,
+                          style: TextStyle(
+                            color: theme.colorScheme.onPrimary,
+                            fontSize: 15,
+                            height: 1.4,
+                          ),
+                        )
+                      else
+                        GptMarkdown(
+                          message.content,
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface,
+                            fontSize: 15,
+                            height: 1.45,
+                          ),
+                        ),
+
+                      // Error message if failed
+                      if (hasError && message.errorMessage != null)
+                        Container(
+                          margin: const EdgeInsets.only(top: 8),
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.errorContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.error_outline, size: 16, color: theme.colorScheme.error),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  message.errorMessage!,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: theme.colorScheme.onErrorContainer,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              if (isUser) ...[
+                const SizedBox(width: 10),
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: theme.colorScheme.secondaryContainer,
+                  child: Icon(Icons.person, size: 16, color: theme.colorScheme.secondary),
+                ),
+              ],
+            ],
+          ),
+
+          // Message action footer (copy button)
+          if (!isUser && message.content.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 42, top: 2),
+              child: IconButton(
+                icon: const Icon(Icons.copy, size: 14),
+                color: Colors.grey.shade600,
+                tooltip: 'Copy message',
+                constraints: const BoxConstraints(),
+                padding: const EdgeInsets.all(6),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: message.content));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Copied to clipboard'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
