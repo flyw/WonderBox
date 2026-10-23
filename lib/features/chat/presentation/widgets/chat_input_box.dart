@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../voice/presentation/widgets/voice_input_button.dart';
 
 class ChatInputBox extends StatefulWidget {
   final bool isStreaming;
@@ -63,6 +64,19 @@ class _ChatInputBoxState extends State<ChatInputBox> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
+            VoiceInputButton(
+              onTextRecognized: (text) {
+                if (text.isNotEmpty) {
+                  final current = _controller.text;
+                  _controller.text = current.isEmpty ? text : '$current $text';
+                  _controller.selection = TextSelection.fromPosition(
+                    TextPosition(offset: _controller.text.length),
+                  );
+                  _focusNode.requestFocus();
+                }
+              },
+            ),
+            const SizedBox(width: 4),
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
