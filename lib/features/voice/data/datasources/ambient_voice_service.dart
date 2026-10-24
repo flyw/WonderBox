@@ -114,56 +114,56 @@ class AmbientVoiceService {
             final slice = combined.sublist(offset, offset + windowSize);
             _vad!.acceptWaveform(slice);
             offset += windowSize;
-
-            final detected = _vad!.isDetected();
-            if (detected != _lastDetectedState) {
-              _lastDetectedState = detected;
-              onSpeechDetectedChanged?.call(detected);
-
-              if (detected) {
-                // Speech started, create fresh streaming recognizer session
-                _activeStream?.free();
-                _activeStream = _paraformerService.createStream();
-                _currentLiveText = '';
-              }
-            }
-
-            // If speaking, feed chunk to StreamingParaformer for live typewriter feedback
-            if (detected && _activeStream != null) {
-              final liveHypothesis = _paraformerService.processChunk(_activeStream!, chunk);
-              if (liveHypothesis.isNotEmpty && liveHypothesis != _currentLiveText) {
-                _currentLiveText = liveHypothesis;
-                onLiveText?.call(_currentLiveText);
-              }
-            }
-
-            while (!_vad!.isEmpty()) {
-              final segment = _vad!.front();
-              _vad!.pop();
-
-              String finalPhrase = '';
-              if (_activeStream != null) {
-                finalPhrase = _paraformerService.finalizeStream(_activeStream!).trim();
-                _activeStream?.free();
-                _activeStream = null;
-              }
-
-              if (finalPhrase.isEmpty && segment.samples.isNotEmpty) {
-                finalPhrase = _paraformerService.transcribeSamples(segment.samples);
-              }
-
-              _currentLiveText = '';
-
-              if (finalPhrase.trim().isNotEmpty) {
-                onPhraseTranscribed(finalPhrase.trim());
-              }
-            }
           }
 
           if (offset < combined.length) {
             residualSamples = combined.sublist(offset);
           } else {
             residualSamples = Float32List(0);
+          }
+
+          final detected = _vad!.isDetected();
+          if (detected != _lastDetectedState) {
+            _lastDetectedState = detected;
+            onSpeechDetectedChanged?.call(detected);
+
+            if (detected) {
+              // Speech started, create fresh streaming recognizer session
+              _activeStream?.free();
+              _activeStream = _paraformerService.createStream();
+              _currentLiveText = '';
+            }
+          }
+
+          // If speaking, feed chunk ONCE to StreamingParaformer for live typewriter feedback
+          if (detected && _activeStream != null) {
+            final liveHypothesis = _paraformerService.processChunk(_activeStream!, chunk);
+            if (liveHypothesis.isNotEmpty && liveHypothesis != _currentLiveText) {
+              _currentLiveText = liveHypothesis;
+              onLiveText?.call(_currentLiveText);
+            }
+          }
+
+          while (!_vad!.isEmpty()) {
+            final segment = _vad!.front();
+            _vad!.pop();
+
+            String finalPhrase = '';
+            if (_activeStream != null) {
+              finalPhrase = _paraformerService.finalizeStream(_activeStream!).trim();
+              _activeStream?.free();
+              _activeStream = null;
+            }
+
+            if (finalPhrase.isEmpty && segment.samples.isNotEmpty) {
+              finalPhrase = _paraformerService.transcribeSamples(segment.samples);
+            }
+
+            _currentLiveText = '';
+
+            if (finalPhrase.trim().isNotEmpty) {
+              onPhraseTranscribed(finalPhrase.trim());
+            }
           }
         },
         onError: (e) {

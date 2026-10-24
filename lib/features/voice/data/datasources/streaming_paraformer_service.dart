@@ -88,6 +88,8 @@ class StreamingParaformerService {
   String finalizeStream(sherpa_onnx.OnlineStream stream) {
     if (_recognizer == null) return '';
 
+    // Pad trailing silence so causal conformer flushes tail characters
+    stream.acceptWaveform(samples: Float32List(3200), sampleRate: 16000);
     stream.inputFinished();
     while (_recognizer!.isReady(stream)) {
       _recognizer!.decode(stream);
