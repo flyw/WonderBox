@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:wonder_box/features/chat/data/services/jev_style_model_manager.dart';
 import 'package:wonder_box/features/chat/domain/models/chat_message.dart';
 import 'package:wonder_box/features/chat/domain/models/llm_config.dart';
 import 'package:wonder_box/features/chat/domain/services/topic_relevance_judge.dart';
@@ -11,7 +12,7 @@ void main() {
 
     setUp(() {
       mockDio = Dio();
-      judge = TopicRelevanceJudge(mockDio);
+      judge = TopicRelevanceJudge(mockDio, JevStyleModelManager());
     });
 
     test('ignores micro-fillers and single character sounds', () async {

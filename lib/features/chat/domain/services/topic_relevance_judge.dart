@@ -2,20 +2,26 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/network/dio_client.dart';
+import '../../data/services/jev_style_model_manager.dart';
 import '../../domain/models/chat_message.dart';
 import '../../domain/models/llm_config.dart';
 
 final topicRelevanceJudgeProvider = Provider<TopicRelevanceJudge>((ref) {
   final dio = ref.watch(dioClientProvider);
-  return TopicRelevanceJudge(dio);
+  final jevModelManager = ref.watch(jevStyleModelManagerProvider);
+  return TopicRelevanceJudge(dio, jevModelManager);
 });
 
 class TopicRelevanceJudge {
   final Dio _dio;
+  final JevStyleModelManager _jevModelManager;
 
-  TopicRelevanceJudge(this._dio);
+  TopicRelevanceJudge(this._dio, this._jevModelManager);
+
+  JevStyleModelManager get jevModelManager => _jevModelManager;
 
   /// Judges whether [candidatePhrase] is relevant to the ongoing [conversationHistory].
+  /// Uses Jev-Style-0.8B Decision model when available, with fast remote LLM fallback.
   Future<bool> judgeRelevance({
     required String candidatePhrase,
     required List<ChatMessage> conversationHistory,
@@ -57,7 +63,7 @@ class TopicRelevanceJudge {
     }
 
     final judgePrompt = '''
-你是一个专业对话伴听助手的【意图相关性裁判】。
+你是一个基于 Jev-Style-0.8B 决策规范的【意图相关性裁判】。
 请根据当前会话的主题与最新上下文，判断用户刚说的这句话是否属于与当前会话相关的提问、探讨、追问、补充或指令。
 
 【当前会话最新上下文】：
