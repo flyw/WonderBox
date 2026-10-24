@@ -1,11 +1,29 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wonder_box/features/chat/data/services/jev_style_model_manager.dart';
+import 'package:wonder_box/features/chat/data/services/local_minicpm_service.dart';
+import 'package:wonder_box/features/chat/data/services/minicpm_model_manager.dart';
 import 'package:wonder_box/features/chat/domain/models/chat_message.dart';
 import 'package:wonder_box/features/chat/domain/models/llm_config.dart';
 import 'package:wonder_box/features/chat/domain/services/topic_relevance_judge.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('MiniCPM-V-4.6 Integration Tests', () {
+    test('MiniCpmModelManager has correct model file name', () {
+      expect(MiniCpmModelManager.modelFileName, 'MiniCPM-V-4_6-Q4_K_M.gguf');
+    });
+
+    test('LocalMiniCpmService localConfig matches expected port and model name', () {
+      expect(LocalMiniCpmService.port, 58588);
+      expect(LocalMiniCpmService.defaultLocalBaseUrl, 'http://127.0.0.1:58588/v1');
+      expect(LocalMiniCpmService.defaultModelName, 'MiniCPM-V-4.6');
+      expect(LocalMiniCpmService.localConfig.baseUrl, 'http://127.0.0.1:58588/v1');
+      expect(LocalMiniCpmService.localConfig.model, 'MiniCPM-V-4.6');
+    });
+  });
+
   group('TopicRelevanceJudge Tests', () {
     late Dio mockDio;
     late TopicRelevanceJudge judge;

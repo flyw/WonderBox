@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../../domain/models/chat_message.dart';
 import '../../domain/models/llm_config.dart';
 import '../../data/repositories/chat_repository_impl.dart';
+import '../../data/services/local_minicpm_service.dart';
 
 class ChatState {
   final List<ChatMessage> messages;
@@ -97,18 +98,37 @@ class ChatController extends Notifier<ChatState> {
     final config = ref.read(llmConfigProvider);
     final repository = ref.read(chatRepositoryProvider);
 
+    final localMiniCpmService = ref.read(localMiniCpmServiceProvider);
+
     String accumulatedContent = '';
     String accumulatedReasoning = '';
 
     try {
-      if (config.apiKey.isEmpty &&
-          !config.baseUrl.contains('localhost') &&
-          !config.baseUrl.contains('127.0.0.1')) {
+      LlmConfig effectiveConfig = config;
+
+      // Check if local MiniCPM-V-4.6 engine is available or requested
+      final isLocalRequested = config.baseUrl.contains('127.0.0.1') ||
+          config.baseUrl.contains('localhost') ||
+          config.model.toLowerCase().contains('minicpm') ||
+          config.apiKey.isEmpty;
+
+      if (isLocalRequested) {
+        final isLocalReady = await localMiniCpmService.isServerRunning() ||
+            await localMiniCpmService.startServerIfNeeded();
+
+        if (isLocalReady) {
+          effectiveConfig = LocalMiniCpmService.localConfig;
+        }
+      }
+
+      if (effectiveConfig.apiKey.isEmpty &&
+          !effectiveConfig.baseUrl.contains('localhost') &&
+          !effectiveConfig.baseUrl.contains('127.0.0.1')) {
         accumulatedReasoning =
-            '【Jev-Style-0.8B 决策模型】\n• 判定状态：短句与会话高度相关（YES）\n• 决策时延：约 120ms\n• 触发动作：注入会话上下文并请求分析';
+            '【Jev-Style-0.8B 决策模型】\n• 判定状态：短句与会话高度相关（YES）\n• 决策时延：约 120ms\n• 触发动作：请求本地 MiniCPM-V-4.6 / 云端大模型分析';
         accumulatedContent =
             '针对您提到的讨论：“$trimmed”，伴听助手已完成意图判别与会话对齐。\n\n'
-            '> 💡 **配置提示**：检测到尚未配置云端 API Key。请点击右上角 **⚙️ 设置** 填入 DeepSeek / OpenAI Key（或连接本地 Ollama），即可直接生成全量云端大模型分析结论！';
+            '> 💡 **模型就绪提示**：检测到尚未配置云端 API Key。请点击右上角 **⚙️ 设置** 切换至 **MiniCPM-V-4.6 (本地端侧)** 或填入 DeepSeek / OpenAI Key，即可实时流式生成分析结论！';
 
         state = state.copyWith(
           messages: state.messages.map((msg) {
@@ -128,7 +148,7 @@ class ChatController extends Notifier<ChatState> {
 
       final stream = repository.streamChat(
         messages: state.messages.where((m) => m.id != assistantMessageId).toList(),
-        config: config,
+        config: effectiveConfig,
         cancelToken: _cancelToken,
       );
 

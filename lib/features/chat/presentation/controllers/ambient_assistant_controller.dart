@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../data/services/local_minicpm_service.dart';
 import '../../domain/services/topic_relevance_judge.dart';
 import '../controllers/chat_controller.dart';
 import '../../../voice/data/datasources/ambient_voice_service.dart';
@@ -64,6 +65,9 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
       statusMessage: '正在准备 TEN VAD 与语音模型...',
       errorMessage: null,
     );
+
+    // Pre-warm local MiniCPM-V-4.6 engine in background
+    ref.read(localMiniCpmServiceProvider).startServerIfNeeded();
 
     final success = await service.startListening(
       onSpeechDetectedChanged: (isDetected) {
@@ -146,10 +150,15 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
     if (isRelevant) {
       state = state.copyWith(
         lastDecision: 'relevant',
-        statusMessage: '✅ Jev-Style 判定相关，已加入会话分析: "$phrase"',
+        statusMessage: '✅ Jev-Style 判定相关，MiniCPM-V-4.6 正在端侧分析: "$phrase"',
       );
       // Automatically inject user message and trigger LLM analysis
       await ref.read(chatControllerProvider.notifier).sendMessage(phrase);
+      if (state.isListening) {
+        state = state.copyWith(
+          statusMessage: 'TEN VAD 伴听就绪 (开口自动分析)',
+        );
+      }
     } else {
       state = state.copyWith(
         lastDecision: 'ignored',

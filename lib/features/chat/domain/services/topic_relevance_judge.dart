@@ -3,20 +3,27 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/network/dio_client.dart';
 import '../../data/services/jev_style_model_manager.dart';
+import '../../data/services/local_minicpm_service.dart';
 import '../../domain/models/chat_message.dart';
 import '../../domain/models/llm_config.dart';
 
 final topicRelevanceJudgeProvider = Provider<TopicRelevanceJudge>((ref) {
   final dio = ref.watch(dioClientProvider);
   final jevModelManager = ref.watch(jevStyleModelManagerProvider);
-  return TopicRelevanceJudge(dio, jevModelManager);
+  final localMiniCpmService = ref.watch(localMiniCpmServiceProvider);
+  return TopicRelevanceJudge(dio, jevModelManager, localMiniCpmService: localMiniCpmService);
 });
 
 class TopicRelevanceJudge {
   final Dio _dio;
   final JevStyleModelManager _jevModelManager;
+  final LocalMiniCpmService? localMiniCpmService;
 
-  TopicRelevanceJudge(this._dio, this._jevModelManager);
+  TopicRelevanceJudge(
+    this._dio,
+    this._jevModelManager, {
+    this.localMiniCpmService,
+  });
 
   JevStyleModelManager get jevModelManager => _jevModelManager;
 
@@ -43,8 +50,22 @@ class TopicRelevanceJudge {
       return phrase.length >= 3;
     }
 
-    // If no API Key configured, fallback to heuristic acceptance
-    if (config.apiKey.isEmpty) {
+    // Resolve endpoint and credentials (auto route to local MiniCPM server if available)
+    String targetBaseUrl = config.baseUrl;
+    String targetApiKey = config.apiKey;
+    String targetModel = config.model;
+
+    if (targetApiKey.isEmpty && localMiniCpmService != null) {
+      final isLocalUp = await localMiniCpmService!.isServerRunning();
+      if (isLocalUp) {
+        targetBaseUrl = LocalMiniCpmService.defaultLocalBaseUrl;
+        targetApiKey = 'local-minicpm';
+        targetModel = LocalMiniCpmService.defaultModelName;
+      }
+    }
+
+    // If still no API Key or local server, fallback to heuristic acceptance
+    if (targetApiKey.isEmpty) {
       return phrase.length >= 3;
     }
 
@@ -79,12 +100,12 @@ $contextBuffer
 请只输出一个词：YES 或 NO（不要输出任何其他多余文字或标点）。
 ''';
 
-    final endpoint = config.baseUrl.endsWith('/')
-        ? '${config.baseUrl}chat/completions'
-        : '${config.baseUrl}/chat/completions';
+    final endpoint = targetBaseUrl.endsWith('/')
+        ? '${targetBaseUrl}chat/completions'
+        : '$targetBaseUrl/chat/completions';
 
     final requestBody = {
-      'model': config.model,
+      'model': targetModel,
       'messages': [
         {
           'role': 'system',
@@ -93,13 +114,13 @@ $contextBuffer
         {'role': 'user', 'content': judgePrompt},
       ],
       'temperature': 0.0,
-      'max_tokens': 8,
+      'max_tokens': 160,
       'stream': false,
     };
 
     final headers = <String, dynamic>{
       'Content-Type': 'application/json',
-      'Authorization': 'Bearer ${config.apiKey}',
+      'Authorization': 'Bearer $targetApiKey',
     };
 
     try {
@@ -116,7 +137,16 @@ $contextBuffer
 
       final data = response.data;
       if (data != null && data['choices'] != null && (data['choices'] as List).isNotEmpty) {
-        final content = (data['choices'][0]['message']['content'] as String? ?? '').trim().toUpperCase();
+        final message = data['choices'][0]['message'] as Map<String, dynamic>? ?? {};
+        final content = (message['content'] as String? ?? '').trim().toUpperCase();
+        final reasoning = (message['reasoning_content'] as String? ?? '').trim().toUpperCase();
+
+        if (content.contains('YES') || (content.isEmpty && reasoning.contains('YES'))) {
+          return true;
+        }
+        if (content.contains('NO')) {
+          return false;
+        }
         return content.contains('YES');
       }
 

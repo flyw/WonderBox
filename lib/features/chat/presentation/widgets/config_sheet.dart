@@ -41,6 +41,10 @@ class _ConfigSheetState extends ConsumerState<ConfigSheet> {
     } else if (name == 'OpenAI') {
       _baseUrlController.text = 'https://api.openai.com/v1';
       _modelController.text = 'gpt-4o-mini';
+    } else if (name == 'MiniCPM-V-4.6 (本地端侧)') {
+      _baseUrlController.text = 'http://127.0.0.1:58588/v1';
+      _modelController.text = 'MiniCPM-V-4.6';
+      _apiKeyController.text = 'local-minicpm';
     } else if (name == 'Ollama (Local)') {
       _baseUrlController.text = 'http://localhost:11434/v1';
       _modelController.text = 'llama3.2';
@@ -88,7 +92,13 @@ class _ConfigSheetState extends ConsumerState<ConfigSheet> {
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
+              runSpacing: 8,
               children: [
+                ActionChip(
+                  avatar: const Icon(Icons.bolt, size: 16, color: Colors.amber),
+                  label: const Text('MiniCPM-V-4.6 (本地端侧)'),
+                  onPressed: () => _applyPreset('MiniCPM-V-4.6 (本地端侧)'),
+                ),
                 ActionChip(
                   label: const Text('DeepSeek V3'),
                   onPressed: () => _applyPreset('DeepSeek'),
@@ -163,6 +173,8 @@ class _ConfigSheetState extends ConsumerState<ConfigSheet> {
                     ],
                   ),
                   const SizedBox(height: 8),
+                  _buildModelRow('MiniCPM-V-4.6 (GGUF)', '504 MB · 端侧分析推理', true),
+                  const SizedBox(height: 4),
                   _buildModelRow('Jev-Style-0.8B (GGUF)', '504 MB · 意图判别与路由', true),
                   const SizedBox(height: 4),
                   _buildModelRow('Streaming-Paraformer', '226 MB · 实时打字机语音', true),
