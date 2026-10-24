@@ -7,6 +7,7 @@ class AmbientAssistantState {
   final bool isEnabled;
   final bool isListening;
   final bool isSpeechActive;
+  final String liveText;
   final String statusMessage;
   final String? lastTranscribedPhrase;
   final String? lastDecision;
@@ -16,6 +17,7 @@ class AmbientAssistantState {
     this.isEnabled = false,
     this.isListening = false,
     this.isSpeechActive = false,
+    this.liveText = '',
     this.statusMessage = '伴听模式待启动',
     this.lastTranscribedPhrase,
     this.lastDecision,
@@ -26,6 +28,7 @@ class AmbientAssistantState {
     bool? isEnabled,
     bool? isListening,
     bool? isSpeechActive,
+    String? liveText,
     String? statusMessage,
     String? lastTranscribedPhrase,
     String? lastDecision,
@@ -35,6 +38,7 @@ class AmbientAssistantState {
       isEnabled: isEnabled ?? this.isEnabled,
       isListening: isListening ?? this.isListening,
       isSpeechActive: isSpeechActive ?? this.isSpeechActive,
+      liveText: liveText ?? this.liveText,
       statusMessage: statusMessage ?? this.statusMessage,
       lastTranscribedPhrase: lastTranscribedPhrase ?? this.lastTranscribedPhrase,
       lastDecision: lastDecision ?? this.lastDecision,
@@ -68,6 +72,13 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
           statusMessage: isDetected ? '正在聆听发言...' : 'TEN VAD 伴听中 (静候短句)',
         );
       },
+      onLiveText: (text) {
+        state = state.copyWith(
+          liveText: text,
+          isSpeechActive: true,
+          statusMessage: '🎙️ 正在聆听: "$text"',
+        );
+      },
       onPhraseTranscribed: (phrase) {
         _handlePhraseTranscribed(phrase);
       },
@@ -83,13 +94,14 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
     if (success) {
       state = state.copyWith(
         isListening: true,
+        liveText: '',
         statusMessage: 'TEN VAD 伴听就绪 (开口自动分析)',
         errorMessage: null,
       );
     } else {
       state = state.copyWith(
         isListening: false,
-        statusMessage: '伴听启动失败',
+        statusMessage: state.errorMessage ?? '伴听启动失败',
       );
     }
   }
@@ -101,6 +113,7 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
       isEnabled: false,
       isListening: false,
       isSpeechActive: false,
+      liveText: '',
       statusMessage: '伴听已暂停',
     );
   }
@@ -115,8 +128,9 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
 
   Future<void> _handlePhraseTranscribed(String phrase) async {
     state = state.copyWith(
+      liveText: '',
       lastTranscribedPhrase: phrase,
-      statusMessage: '捕获短句: "$phrase"，正在判断相关性...',
+      statusMessage: '⚖️ Jev-Style-0.8B 正在判别: "$phrase"...',
     );
 
     final chatState = ref.read(chatControllerProvider);
@@ -132,14 +146,14 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
     if (isRelevant) {
       state = state.copyWith(
         lastDecision: 'relevant',
-        statusMessage: '短句相关，已加入会话分析！',
+        statusMessage: '✅ Jev-Style 判定相关，已加入会话分析: "$phrase"',
       );
       // Automatically inject user message and trigger LLM analysis
       await ref.read(chatControllerProvider.notifier).sendMessage(phrase);
     } else {
       state = state.copyWith(
         lastDecision: 'ignored',
-        statusMessage: '已忽略非相关闲聊: "$phrase"',
+        statusMessage: '🛡️ Jev-Style 判定为非相关闲聊，已过滤: "$phrase"',
       );
     }
   }

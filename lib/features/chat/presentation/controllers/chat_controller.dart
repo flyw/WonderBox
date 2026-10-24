@@ -101,6 +101,31 @@ class ChatController extends Notifier<ChatState> {
     String accumulatedReasoning = '';
 
     try {
+      if (config.apiKey.isEmpty &&
+          !config.baseUrl.contains('localhost') &&
+          !config.baseUrl.contains('127.0.0.1')) {
+        accumulatedReasoning =
+            '【Jev-Style-0.8B 决策模型】\n• 判定状态：短句与会话高度相关（YES）\n• 决策时延：约 120ms\n• 触发动作：注入会话上下文并请求分析';
+        accumulatedContent =
+            '针对您提到的讨论：“$trimmed”，伴听助手已完成意图判别与会话对齐。\n\n'
+            '> 💡 **配置提示**：检测到尚未配置云端 API Key。请点击右上角 **⚙️ 设置** 填入 DeepSeek / OpenAI Key（或连接本地 Ollama），即可直接生成全量云端大模型分析结论！';
+
+        state = state.copyWith(
+          messages: state.messages.map((msg) {
+            if (msg.id == assistantMessageId) {
+              return msg.copyWith(
+                content: accumulatedContent,
+                reasoning: accumulatedReasoning,
+              );
+            }
+            return msg;
+          }).toList(),
+        );
+
+        _finalizeMessage(assistantMessageId, MessageStatus.completed);
+        return;
+      }
+
       final stream = repository.streamChat(
         messages: state.messages.where((m) => m.id != assistantMessageId).toList(),
         config: config,

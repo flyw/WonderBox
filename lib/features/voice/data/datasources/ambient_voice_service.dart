@@ -23,9 +23,11 @@ class AmbientVoiceService {
   final AudioRecorder _audioRecorder = AudioRecorder();
 
   sherpa_onnx.VoiceActivityDetector? _vad;
+  sherpa_onnx.OnlineStream? _activeStream;
   StreamSubscription<Uint8List>? _recordStreamSub;
   bool _isListening = false;
   bool _lastDetectedState = false;
+  String _currentLiveText = '';
 
   AmbientVoiceService(this._vadManager, this._paraformerService);
 
@@ -40,6 +42,7 @@ class AmbientVoiceService {
 
   Future<bool> startListening({
     required void Function(String phrase) onPhraseTranscribed,
+    void Function(String liveText)? onLiveText,
     void Function(bool isSpeechDetected)? onSpeechDetectedChanged,
     void Function(String error)? onError,
   }) async {
@@ -75,6 +78,10 @@ class AmbientVoiceService {
         config: vadConfig,
         bufferSizeInSeconds: 30,
       );
+
+      _activeStream?.free();
+      _activeStream = null;
+      _currentLiveText = '';
 
       final recordStream = await _audioRecorder.startStream(
         const RecordConfig(
@@ -112,17 +119,43 @@ class AmbientVoiceService {
             if (detected != _lastDetectedState) {
               _lastDetectedState = detected;
               onSpeechDetectedChanged?.call(detected);
+
+              if (detected) {
+                // Speech started, create fresh streaming recognizer session
+                _activeStream?.free();
+                _activeStream = _paraformerService.createStream();
+                _currentLiveText = '';
+              }
+            }
+
+            // If speaking, feed chunk to StreamingParaformer for live typewriter feedback
+            if (detected && _activeStream != null) {
+              final liveHypothesis = _paraformerService.processChunk(_activeStream!, chunk);
+              if (liveHypothesis.isNotEmpty && liveHypothesis != _currentLiveText) {
+                _currentLiveText = liveHypothesis;
+                onLiveText?.call(_currentLiveText);
+              }
             }
 
             while (!_vad!.isEmpty()) {
               final segment = _vad!.front();
               _vad!.pop();
 
-              if (segment.samples.isNotEmpty) {
-                final phrase = _paraformerService.transcribeSamples(segment.samples);
-                if (phrase.trim().isNotEmpty) {
-                  onPhraseTranscribed(phrase.trim());
-                }
+              String finalPhrase = '';
+              if (_activeStream != null) {
+                finalPhrase = _paraformerService.finalizeStream(_activeStream!).trim();
+                _activeStream?.free();
+                _activeStream = null;
+              }
+
+              if (finalPhrase.isEmpty && segment.samples.isNotEmpty) {
+                finalPhrase = _paraformerService.transcribeSamples(segment.samples);
+              }
+
+              _currentLiveText = '';
+
+              if (finalPhrase.trim().isNotEmpty) {
+                onPhraseTranscribed(finalPhrase.trim());
               }
             }
           }
@@ -149,6 +182,10 @@ class AmbientVoiceService {
   Future<void> stopListening() async {
     _isListening = false;
     _lastDetectedState = false;
+    _activeStream?.free();
+    _activeStream = null;
+    _currentLiveText = '';
+
     await _recordStreamSub?.cancel();
     _recordStreamSub = null;
     await _audioRecorder.stop();

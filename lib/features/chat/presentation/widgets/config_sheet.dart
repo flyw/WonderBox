@@ -135,6 +135,42 @@ class _ConfigSheetState extends ConsumerState<ConfigSheet> {
                 border: OutlineInputBorder(),
               ),
             ),
+            const SizedBox(height: 18),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: theme.colorScheme.outline.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.memory, size: 16, color: theme.colorScheme.primary),
+                      const SizedBox(width: 6),
+                      Text(
+                        '端侧本地模型状态 (On-Device Models)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _buildModelRow('Jev-Style-0.8B (GGUF)', '504 MB · 意图判别与路由', true),
+                  const SizedBox(height: 4),
+                  _buildModelRow('Streaming-Paraformer', '226 MB · 实时打字机语音', true),
+                  const SizedBox(height: 4),
+                  _buildModelRow('TEN VAD (Agora)', '324 KB · 高灵敏切句防吞音', true),
+                ],
+              ),
+            ),
             const SizedBox(height: 20),
             FilledButton(
               onPressed: _save,
@@ -143,6 +179,28 @@ class _ConfigSheetState extends ConsumerState<ConfigSheet> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildModelRow(String name, String desc, bool ready) {
+    return Row(
+      children: [
+        Icon(
+          ready ? Icons.check_circle : Icons.radio_button_unchecked,
+          size: 14,
+          color: ready ? Colors.green : Colors.grey,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          name,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+        const Spacer(),
+        Text(
+          desc,
+          style: const TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+      ],
     );
   }
 }

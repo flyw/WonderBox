@@ -85,13 +85,10 @@ class AmbientStatusBar extends ConsumerWidget {
     final state = ref.watch(ambientAssistantProvider);
     final theme = Theme.of(context);
 
-    if (!state.isListening && state.errorMessage == null) {
-      return const SizedBox.shrink();
-    }
-
     final isError = state.errorMessage != null;
     final isRelevant = state.lastDecision == 'relevant';
     final isIgnored = state.lastDecision == 'ignored';
+    final isSpeaking = state.liveText.isNotEmpty;
 
     Color bgColor;
     Color textColor;
@@ -101,33 +98,53 @@ class AmbientStatusBar extends ConsumerWidget {
       bgColor = theme.colorScheme.errorContainer;
       textColor = theme.colorScheme.onErrorContainer;
       iconData = Icons.error_outline_rounded;
+    } else if (isSpeaking) {
+      bgColor = Colors.blue.withValues(alpha: 0.15);
+      textColor = Colors.blue.shade800;
+      iconData = Icons.graphic_eq_rounded;
     } else if (isRelevant) {
-      bgColor = theme.colorScheme.primaryContainer;
-      textColor = theme.colorScheme.onPrimaryContainer;
+      bgColor = Colors.green.withValues(alpha: 0.15);
+      textColor = Colors.green.shade800;
       iconData = Icons.auto_awesome;
     } else if (isIgnored) {
       bgColor = theme.colorScheme.surfaceContainerHighest;
       textColor = theme.colorScheme.onSurfaceVariant;
       iconData = Icons.filter_alt_outlined;
-    } else {
+    } else if (state.isListening) {
       bgColor = theme.colorScheme.surfaceContainer;
       textColor = theme.colorScheme.onSurface;
+      iconData = Icons.hearing_rounded;
+    } else {
+      bgColor = theme.colorScheme.surfaceContainerLow;
+      textColor = theme.colorScheme.outline;
       iconData = Icons.info_outline;
     }
+
+    final displayText = isError
+        ? state.errorMessage!
+        : (isSpeaking
+            ? '🎙️ 听到您在说: "${state.liveText}"'
+            : (state.isListening
+                ? state.statusMessage
+                : '💡 伴听模式已暂停 (点击右上角 [伴听模式] 胶囊可开启)'));
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
       color: bgColor,
       child: Row(
         children: [
-          Icon(iconData, size: 14, color: textColor),
+          Icon(iconData, size: 15, color: textColor),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              isError ? state.errorMessage! : state.statusMessage,
-              style: TextStyle(fontSize: 12, color: textColor),
+              displayText,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSpeaking ? FontWeight.bold : FontWeight.normal,
+                color: textColor,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
