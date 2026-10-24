@@ -30,5 +30,7 @@
 	<string>NSApplication</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>WonderBox 需要访问您的麦克风以实现本地语音输入功能。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>WonderBox 需要访问您的摄像头以在伴听中读取视觉画面参与会话。</string>
 </dict>
 </plist>

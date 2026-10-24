@@ -76,4 +76,32 @@ void main() {
       expect(isRelevant, true);
     });
   });
+
+  group('Camera Multimodal ChatMessage Tests', () {
+    test('ChatMessage formats text-only correctly', () {
+      final message = ChatMessage(
+        id: '1',
+        role: MessageRole.user,
+        content: '你好',
+        createdAt: DateTime.now(),
+      );
+      final api = message.toApiMessage();
+      expect(api['role'], 'user');
+      expect(api['content'], '你好');
+    });
+
+    test('ChatMessage supports imagePath and preserves in copyWith', () {
+      final message = ChatMessage(
+        id: '2',
+        role: MessageRole.user,
+        content: '看看这张图',
+        imagePath: '/tmp/test_snapshot.jpg',
+        createdAt: DateTime.now(),
+      );
+      expect(message.imagePath, '/tmp/test_snapshot.jpg');
+      final updated = message.copyWith(content: '新内容');
+      expect(updated.imagePath, '/tmp/test_snapshot.jpg');
+      expect(updated.content, '新内容');
+    });
+  });
 }

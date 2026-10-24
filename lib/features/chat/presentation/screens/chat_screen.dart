@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../camera/presentation/widgets/camera_preview_floating.dart';
+import '../../../camera/presentation/widgets/camera_toggle_pill.dart';
 import '../controllers/ambient_assistant_controller.dart';
 import '../controllers/chat_controller.dart';
 import '../widgets/ambient_listening_pill.dart';
@@ -74,6 +76,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
         actions: [
           const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10, horizontal: 2),
+            child: CameraTogglePill(),
+          ),
+          const Padding(
             padding: EdgeInsets.symmetric(vertical: 10, horizontal: 4),
             child: AmbientListeningPill(),
           ),
@@ -99,70 +105,75 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          const AmbientStatusBar(),
-          Expanded(
-            child: chatState.messages.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.auto_awesome,
-                            size: 48,
-                            color: theme.colorScheme.primary.withValues(alpha: 0.6),
+          Column(
+            children: [
+              const AmbientStatusBar(),
+              Expanded(
+                child: chatState.messages.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.auto_awesome,
+                                size: 48,
+                                color: theme.colorScheme.primary.withValues(alpha: 0.6),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'SOTA LLM Architecture Ready',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Click the settings icon in the top right to configure your API Key.\nSupports DeepSeek (V3 & R1 Reasoning), OpenAI, Ollama, etc.',
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              FilledButton.tonalIcon(
+                                icon: const Icon(Icons.tune),
+                                label: const Text('Configure Provider'),
+                                onPressed: () {
+                                  showModalBottomSheet(
+                                    context: context,
+                                    isScrollControlled: true,
+                                    builder: (_) => const ConfigSheet(),
+                                  );
+                                },
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'SOTA LLM Architecture Ready',
-                            style: theme.textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Click the settings icon in the top right to configure your API Key.\nSupports DeepSeek (V3 & R1 Reasoning), OpenAI, Ollama, etc.',
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          FilledButton.tonalIcon(
-                            icon: const Icon(Icons.tune),
-                            label: const Text('Configure Provider'),
-                            onPressed: () {
-                              showModalBottomSheet(
-                                context: context,
-                                isScrollControlled: true,
-                                builder: (_) => const ConfigSheet(),
-                              );
-                            },
-                          ),
-                        ],
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        itemCount: chatState.messages.length,
+                        itemBuilder: (context, index) {
+                          final message = chatState.messages[index];
+                          return MessageBubble(key: ValueKey(message.id), message: message);
+                        },
                       ),
-                    ),
-                  )
-                : ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    itemCount: chatState.messages.length,
-                    itemBuilder: (context, index) {
-                      final message = chatState.messages[index];
-                      return MessageBubble(key: ValueKey(message.id), message: message);
-                    },
-                  ),
+              ),
+              ChatInputBox(
+                isStreaming: chatState.isStreaming,
+                onSend: (text) {
+                  ref.read(chatControllerProvider.notifier).sendMessage(text);
+                },
+                onStop: () {
+                  ref.read(chatControllerProvider.notifier).stopStreaming();
+                },
+              ),
+            ],
           ),
-          ChatInputBox(
-            isStreaming: chatState.isStreaming,
-            onSend: (text) {
-              ref.read(chatControllerProvider.notifier).sendMessage(text);
-            },
-            onStop: () {
-              ref.read(chatControllerProvider.notifier).stopStreaming();
-            },
-          ),
+          const CameraPreviewFloating(),
         ],
       ),
     );

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
@@ -56,6 +57,53 @@ class MessageBubble extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Camera snapshot preview if attached
+                      if (message.imagePath != null && message.imagePath!.isNotEmpty) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Stack(
+                              children: [
+                                Image.file(
+                                  File(message.imagePath!),
+                                  width: 220,
+                                  height: 140,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                                ),
+                                Positioned(
+                                  left: 6,
+                                  bottom: 6,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.65),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.camera_alt, size: 10, color: Colors.white),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          '现场画面捕获',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+
                       // Reasoning / CoT thinking box
                       if (message.reasoning != null && message.reasoning!.isNotEmpty)
                         ReasoningFoldout(

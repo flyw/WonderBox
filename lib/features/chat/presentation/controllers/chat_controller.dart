@@ -67,14 +67,15 @@ class ChatController extends Notifier<ChatState> {
     return const ChatState();
   }
 
-  Future<void> sendMessage(String text) async {
+  Future<void> sendMessage(String text, {String? imagePath}) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty || state.isStreaming) return;
+    if ((trimmed.isEmpty && (imagePath == null || imagePath.isEmpty)) || state.isStreaming) return;
 
     final userMessage = ChatMessage(
       id: _uuid.v4(),
       role: MessageRole.user,
       content: trimmed,
+      imagePath: imagePath,
       createdAt: DateTime.now(),
     );
 

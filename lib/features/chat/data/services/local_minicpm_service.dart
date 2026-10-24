@@ -1,15 +1,12 @@
 import 'dart:io';
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/network/dio_client.dart';
 import '../../domain/models/llm_config.dart';
 import 'minicpm_model_manager.dart';
 
 final localMiniCpmServiceProvider = Provider<LocalMiniCpmService>((ref) {
-  final dio = ref.watch(dioClientProvider);
   final modelManager = ref.watch(miniCpmModelManagerProvider);
-  final service = LocalMiniCpmService(dio, modelManager);
+  final service = LocalMiniCpmService(modelManager);
   ref.onDispose(() {
     service.dispose();
   });
@@ -17,7 +14,6 @@ final localMiniCpmServiceProvider = Provider<LocalMiniCpmService>((ref) {
 });
 
 class LocalMiniCpmService {
-  final Dio _dio;
   final MiniCpmModelManager _modelManager;
   Process? _serverProcess;
 
@@ -33,7 +29,7 @@ class LocalMiniCpmService {
     systemPrompt: '你是一个专业的智能伴听分析助手，根据用户短句和会话上下文给出敏锐、精炼、结构清晰的分析回复。',
   );
 
-  LocalMiniCpmService(this._dio, this._modelManager);
+  LocalMiniCpmService(this._modelManager);
 
   /// Checks if the local llama-server is alive and ready
   Future<bool> isServerRunning() async {

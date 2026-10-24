@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/services/local_minicpm_service.dart';
 import '../../domain/services/topic_relevance_judge.dart';
 import '../controllers/chat_controller.dart';
+import '../../../camera/presentation/controllers/camera_controller.dart';
 import '../../../voice/data/datasources/ambient_voice_service.dart';
 
 class AmbientAssistantState {
@@ -66,8 +68,9 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
       errorMessage: null,
     );
 
-    // Pre-warm local MiniCPM-V-4.6 engine in background
+    // Pre-warm local MiniCPM-V-4.6 engine and camera in background
     ref.read(localMiniCpmServiceProvider).startServerIfNeeded();
+    ref.read(cameraControllerProvider.notifier).initialize();
 
     final success = await service.startListening(
       onSpeechDetectedChanged: (isDetected) {
@@ -150,10 +153,29 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
     if (isRelevant) {
       state = state.copyWith(
         lastDecision: 'relevant',
-        statusMessage: '✅ Jev-Style 判定相关，MiniCPM-V-4.6 正在端侧分析: "$phrase"',
+        statusMessage: '📸 Jev-Style 判定相关，正在读取现场画面...',
       );
-      // Automatically inject user message and trigger LLM analysis
-      await ref.read(chatControllerProvider.notifier).sendMessage(phrase);
+
+      // Read camera frame if camera is enabled
+      String? snapshotPath;
+      try {
+        snapshotPath = await ref.read(cameraControllerProvider.notifier).captureFrame();
+      } catch (e) {
+        debugPrint('[AmbientAssistant] Camera frame capture error: $e');
+      }
+
+      state = state.copyWith(
+        statusMessage: snapshotPath != null
+            ? '📸 画面已读取，MiniCPM-V-4.6 正在端侧多模态分析: "$phrase"'
+            : '✅ Jev-Style 判定相关，MiniCPM-V-4.6 正在端侧分析: "$phrase"',
+      );
+
+      // Automatically inject user message with captured image and trigger LLM analysis
+      await ref.read(chatControllerProvider.notifier).sendMessage(
+        phrase,
+        imagePath: snapshotPath,
+      );
+
       if (state.isListening) {
         state = state.copyWith(
           statusMessage: 'TEN VAD 伴听就绪 (开口自动分析)',
