@@ -20,7 +20,7 @@ class VoiceDownloadDialog extends ConsumerWidget {
           Navigator.of(context).pop();
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('🎉 Qwen3-ASR 离线语音模型已就绪！点击输入框旁的麦克风即可开始说话。'),
+              content: Text('🎉 Streaming-Paraformer 实时流式模型已就绪！点击麦克风即可体验边说边出字。'),
               backgroundColor: Colors.green,
               duration: Duration(seconds: 4),
             ),
@@ -33,11 +33,11 @@ class VoiceDownloadDialog extends ConsumerWidget {
       title: Row(
         children: [
           Icon(
-            isReady ? Icons.check_circle : Icons.download,
+            isReady ? Icons.check_circle : Icons.electric_bolt,
             color: isReady ? Colors.green : theme.colorScheme.primary,
           ),
           const SizedBox(width: 8),
-          Text(isReady ? '模型已就绪' : 'Qwen3-ASR 本地模型'),
+          Text(isReady ? '实时模型已就绪' : 'Streaming-Paraformer 实时模型'),
         ],
       ),
       content: Column(
@@ -46,14 +46,14 @@ class VoiceDownloadDialog extends ConsumerWidget {
         children: [
           if (isReady)
             const Text(
-              'Qwen3-ASR 0.6B 本地离线模型已下载并初始化成功！\n\n'
-              '现在您可以直接点击底部麦克风进行语音输入，支持普通话、方言与中英双语识别。',
+              'Streaming-Paraformer 实时打字机模型已就绪！\n\n'
+              '现在您可以直接点击底部麦克风说话，输入框将随您的声音实时毫秒级逐字打出。',
               style: TextStyle(fontSize: 14, height: 1.4),
             )
           else ...[
             const Text(
-              'Qwen3-ASR 0.6B 是高精度的本地端侧语音识别模型（支持30+多语言及22种中国方言）。\n\n'
-              '首次使用需下载离线量化模型（约 900MB，仅下载一次，后续完全离线无需流量）。',
+              'Streaming-Paraformer 是专为“边说边出字”设计的低延迟流式语音识别模型。\n\n'
+              '量化后仅需约 220MB（相比大模型体积缩小 4 倍，解码延迟仅 20ms）。首次使用需下载一次，后续完全离线运行。',
               style: TextStyle(fontSize: 14, height: 1.4),
             ),
             const SizedBox(height: 16),

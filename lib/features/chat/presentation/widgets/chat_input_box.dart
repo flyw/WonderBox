@@ -21,12 +21,14 @@ class ChatInputBox extends StatefulWidget {
 class _ChatInputBoxState extends State<ChatInputBox> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  String _prefixText = '';
 
   void _handleSend() {
     final text = _controller.text.trim();
     if (text.isNotEmpty && !widget.isStreaming) {
       widget.onSend(text);
       _controller.clear();
+      _prefixText = '';
       _focusNode.requestFocus();
     }
   }
@@ -65,14 +67,19 @@ class _ChatInputBoxState extends State<ChatInputBox> {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             VoiceInputButton(
-              onTextRecognized: (text) {
-                if (text.isNotEmpty) {
-                  final current = _controller.text;
-                  _controller.text = current.isEmpty ? text : '$current $text';
+              onRecordingStarted: () {
+                _prefixText = _controller.text.trim();
+              },
+              onTextRecognized: (liveText) {
+                if (liveText.isNotEmpty) {
+                  if (_prefixText.isEmpty) {
+                    _controller.text = liveText;
+                  } else {
+                    _controller.text = '$_prefixText $liveText';
+                  }
                   _controller.selection = TextSelection.fromPosition(
                     TextPosition(offset: _controller.text.length),
                   );
-                  _focusNode.requestFocus();
                 }
               },
             ),
@@ -104,7 +111,7 @@ class _ChatInputBoxState extends State<ChatInputBox> {
                       color: theme.colorScheme.onSurface,
                     ),
                     decoration: const InputDecoration(
-                      hintText: 'Type your message...',
+                      hintText: 'Type your message or speak...',
                       border: InputBorder.none,
                       isDense: true,
                       contentPadding: EdgeInsets.symmetric(vertical: 8),

@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
-import '../../data/datasources/qwen3_asr_service.dart';
+import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
+import '../../data/datasources/streaming_paraformer_service.dart';
 
 enum VoiceInputStatus {
   uninitialized,
@@ -21,6 +22,7 @@ class VoiceInputState {
   final double downloadProgress;
   final String statusMessage;
   final String? lastRecognizedText;
+  final String liveText;
   final String? errorMessage;
   final int recordingSeconds;
 
@@ -29,6 +31,7 @@ class VoiceInputState {
     this.downloadProgress = 0.0,
     this.statusMessage = '',
     this.lastRecognizedText,
+    this.liveText = '',
     this.errorMessage,
     this.recordingSeconds = 0,
   });
@@ -38,6 +41,7 @@ class VoiceInputState {
     double? downloadProgress,
     String? statusMessage,
     String? lastRecognizedText,
+    String? liveText,
     String? errorMessage,
     int? recordingSeconds,
   }) {
@@ -46,6 +50,7 @@ class VoiceInputState {
       downloadProgress: downloadProgress ?? this.downloadProgress,
       statusMessage: statusMessage ?? this.statusMessage,
       lastRecognizedText: lastRecognizedText ?? this.lastRecognizedText,
+      liveText: liveText ?? this.liveText,
       errorMessage: errorMessage ?? this.errorMessage,
       recordingSeconds: recordingSeconds ?? this.recordingSeconds,
     );
@@ -55,32 +60,44 @@ class VoiceInputState {
 class VoiceInputController extends Notifier<VoiceInputState> {
   final AudioRecorder _audioRecorder = AudioRecorder();
   Timer? _timer;
-  String? _currentRecordingPath;
   CancelToken? _downloadCancelToken;
+
+  sherpa_onnx.OnlineStream? _onlineStream;
+  StreamSubscription<Uint8List>? _recordStreamSub;
+  String _confirmedText = '';
+  String _currentClauseText = '';
+  void Function(String text)? _onLiveTextCallback;
 
   @override
   VoiceInputState build() {
     ref.onDispose(() {
-      _timer?.cancel();
-      _audioRecorder.dispose();
-      _downloadCancelToken?.cancel();
+      _cleanupResources();
     });
 
     Future.microtask(() => checkModelStatus());
     return const VoiceInputState();
   }
 
+  void _cleanupResources() {
+    _timer?.cancel();
+    _recordStreamSub?.cancel();
+    _audioRecorder.dispose();
+    _downloadCancelToken?.cancel();
+    _onlineStream?.free();
+    _onlineStream = null;
+  }
+
   Future<void> checkModelStatus() async {
-    final modelManager = ref.read(qwen3ModelManagerProvider);
+    final modelManager = ref.read(streamingModelManagerProvider);
     final isDownloaded = await modelManager.isModelDownloaded();
     state = state.copyWith(
       status: isDownloaded ? VoiceInputStatus.ready : VoiceInputStatus.modelMissing,
-      statusMessage: isDownloaded ? 'Qwen3 模型就绪' : 'Qwen3 模型待下载',
+      statusMessage: isDownloaded ? '实时流式模型就绪' : '实时模型待下载',
     );
   }
 
   Future<void> downloadModel() async {
-    final modelManager = ref.read(qwen3ModelManagerProvider);
+    final modelManager = ref.read(streamingModelManagerProvider);
     state = state.copyWith(
       status: VoiceInputStatus.downloading,
       downloadProgress: 0.0,
@@ -100,12 +117,12 @@ class VoiceInputController extends Notifier<VoiceInputState> {
         },
       );
 
-      final asrService = ref.read(qwen3AsrServiceProvider);
-      await asrService.ensureInitialized();
+      final service = ref.read(streamingParaformerServiceProvider);
+      await service.ensureInitialized();
 
       state = state.copyWith(
         status: VoiceInputStatus.ready,
-        statusMessage: 'Qwen3-ASR 模型加载完成',
+        statusMessage: 'Streaming-Paraformer 实时模型就绪',
       );
     } catch (e) {
       state = state.copyWith(
@@ -118,7 +135,7 @@ class VoiceInputController extends Notifier<VoiceInputState> {
     }
   }
 
-  Future<bool> startRecording() async {
+  Future<bool> startRecording({required void Function(String text) onLiveText}) async {
     if (state.status == VoiceInputStatus.modelMissing) {
       await downloadModel();
       if (state.status != VoiceInputStatus.ready) return false;
@@ -126,29 +143,54 @@ class VoiceInputController extends Notifier<VoiceInputState> {
 
     if (state.status == VoiceInputStatus.recording) return false;
 
-    // Check permission via AudioRecorder (cross-platform: macOS, iOS, Android)
+    // Check microphone permission across platforms
     final hasPermission = await _audioRecorder.hasPermission();
     if (!hasPermission) {
       state = state.copyWith(
         status: VoiceInputStatus.error,
-        errorMessage: '需要麦克风权限以使用语音输入',
+        errorMessage: '需要麦克风权限以使用实时语音输入',
       );
       return false;
     }
 
     try {
-      final tempDir = await getTemporaryDirectory();
-      _currentRecordingPath =
-          '${tempDir.path}/record_${DateTime.now().millisecondsSinceEpoch}.wav';
+      final service = ref.read(streamingParaformerServiceProvider);
+      await service.ensureInitialized();
 
-      await _audioRecorder.start(
+      _onlineStream?.free();
+      _onlineStream = service.createStream();
+      _confirmedText = '';
+      _currentClauseText = '';
+      _onLiveTextCallback = onLiveText;
+
+      final recordStream = await _audioRecorder.startStream(
         const RecordConfig(
-          encoder: AudioEncoder.wav,
+          encoder: AudioEncoder.pcm16bits,
           sampleRate: 16000,
           numChannels: 1,
         ),
-        path: _currentRecordingPath!,
       );
+
+      _recordStreamSub?.cancel();
+      _recordStreamSub = recordStream.listen((Uint8List chunk) {
+        if (_onlineStream == null) return;
+
+        final chunkText = service.processChunk(_onlineStream!, chunk);
+
+        if (service.isEndpoint(_onlineStream!)) {
+          if (chunkText.isNotEmpty) {
+            _confirmedText += chunkText;
+          }
+          service.resetStream(_onlineStream!);
+          _currentClauseText = '';
+        } else {
+          _currentClauseText = chunkText;
+        }
+
+        final fullText = '$_confirmedText$_currentClauseText'.trim();
+        state = state.copyWith(liveText: fullText);
+        _onLiveTextCallback?.call(fullText);
+      });
 
       _timer?.cancel();
       var seconds = 0;
@@ -160,71 +202,66 @@ class VoiceInputController extends Notifier<VoiceInputState> {
       state = state.copyWith(
         status: VoiceInputStatus.recording,
         recordingSeconds: 0,
-        statusMessage: '正在聆听中...',
+        liveText: '',
+        statusMessage: '正在聆听 (实时打字中)...',
         errorMessage: null,
       );
       return true;
     } catch (e) {
       state = state.copyWith(
         status: VoiceInputStatus.error,
-        errorMessage: '启动录音失败: $e',
+        errorMessage: '启动实时录音失败: $e',
       );
       return false;
     }
   }
 
-  Future<String?> stopRecordingAndTranscribe() async {
+  Future<String> stopRecording() async {
     _timer?.cancel();
-    if (state.status != VoiceInputStatus.recording) return null;
+    await _recordStreamSub?.cancel();
+    _recordStreamSub = null;
+    await _audioRecorder.stop();
+
+    if (_onlineStream != null) {
+      final service = ref.read(streamingParaformerServiceProvider);
+      final finalChunk = service.finalizeStream(_onlineStream!);
+      if (finalChunk.isNotEmpty) {
+        _currentClauseText = finalChunk;
+      }
+      _onlineStream?.free();
+      _onlineStream = null;
+    }
+
+    final finalResult = '$_confirmedText$_currentClauseText'.trim();
+    if (finalResult.isNotEmpty) {
+      _onLiveTextCallback?.call(finalResult);
+    }
 
     state = state.copyWith(
-      status: VoiceInputStatus.transcribing,
-      statusMessage: 'Qwen3 本地识别中...',
+      status: VoiceInputStatus.ready,
+      liveText: finalResult,
+      lastRecognizedText: finalResult,
+      statusMessage: '识别完成',
     );
 
-    try {
-      final path = await _audioRecorder.stop();
-      final wavPath = path ?? _currentRecordingPath;
-      if (wavPath == null) throw Exception('录音路径无效');
-
-      final asrService = ref.read(qwen3AsrServiceProvider);
-      final text = await asrService.transcribe(wavPath);
-
-      state = state.copyWith(
-        status: VoiceInputStatus.ready,
-        lastRecognizedText: text,
-        statusMessage: '识别完成',
-      );
-
-      // Clean up temporary audio file
-      final file = File(wavPath);
-      if (await file.exists()) {
-        await file.delete();
-      }
-
-      return text;
-    } catch (e) {
-      state = state.copyWith(
-        status: VoiceInputStatus.error,
-        errorMessage: '识别失败: $e',
-        statusMessage: '识别出错',
-      );
-      return null;
-    }
+    return finalResult;
   }
 
   Future<void> cancelRecording() async {
     _timer?.cancel();
+    await _recordStreamSub?.cancel();
+    _recordStreamSub = null;
     await _audioRecorder.stop();
-    if (_currentRecordingPath != null) {
-      final file = File(_currentRecordingPath!);
-      if (await file.exists()) {
-        await file.delete();
-      }
+
+    if (_onlineStream != null) {
+      _onlineStream?.free();
+      _onlineStream = null;
     }
+
     state = state.copyWith(
       status: VoiceInputStatus.ready,
       recordingSeconds: 0,
+      liveText: '',
       statusMessage: '已取消录音',
     );
   }

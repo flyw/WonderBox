@@ -5,8 +5,13 @@ import 'voice_download_dialog.dart';
 
 class VoiceInputButton extends ConsumerWidget {
   final ValueChanged<String> onTextRecognized;
+  final VoidCallback? onRecordingStarted;
 
-  const VoiceInputButton({super.key, required this.onTextRecognized});
+  const VoiceInputButton({
+    super.key,
+    required this.onTextRecognized,
+    this.onRecordingStarted,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -24,28 +29,13 @@ class VoiceInputButton extends ConsumerWidget {
             value: state.downloadProgress > 0 ? state.downloadProgress : null,
           ),
         ),
-        tooltip: 'Qwen3 模型下载中...',
+        tooltip: '实时模型下载中...',
         onPressed: () {
           showDialog(
             context: context,
             builder: (_) => const VoiceDownloadDialog(),
           );
         },
-      );
-    }
-
-    if (state.status == VoiceInputStatus.transcribing) {
-      return IconButton(
-        icon: SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: theme.colorScheme.primary,
-          ),
-        ),
-        tooltip: 'Qwen3 识别中...',
-        onPressed: null,
       );
     }
 
@@ -84,12 +74,9 @@ class VoiceInputButton extends ConsumerWidget {
           ),
           IconButton(
             icon: Icon(Icons.check_circle, color: theme.colorScheme.primary),
-            tooltip: '完成并识别',
+            tooltip: '完成录音',
             onPressed: () async {
-              final text = await notifier.stopRecordingAndTranscribe();
-              if (text != null && text.isNotEmpty) {
-                onTextRecognized(text);
-              }
+              await notifier.stopRecording();
             },
           ),
           IconButton(
@@ -135,7 +122,7 @@ class VoiceInputButton extends ConsumerWidget {
             ),
         ],
       ),
-      tooltip: isModelMissing ? '下载 Qwen3 本地语音模型' : '语音输入 (Qwen3-ASR)',
+      tooltip: isModelMissing ? '下载实时流式模型' : '实时语音输入 (Streaming-Paraformer)',
       onPressed: () async {
         if (isModelMissing) {
           showDialog(
@@ -143,7 +130,12 @@ class VoiceInputButton extends ConsumerWidget {
             builder: (_) => const VoiceDownloadDialog(),
           );
         } else {
-          await notifier.startRecording();
+          onRecordingStarted?.call();
+          await notifier.startRecording(
+            onLiveText: (text) {
+              onTextRecognized(text);
+            },
+          );
         }
       },
     );
