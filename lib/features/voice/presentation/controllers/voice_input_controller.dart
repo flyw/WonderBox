@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import '../../data/datasources/qwen3_asr_service.dart';
 
@@ -127,9 +126,9 @@ class VoiceInputController extends Notifier<VoiceInputState> {
 
     if (state.status == VoiceInputStatus.recording) return false;
 
-    // Check permission
-    final permission = await Permission.microphone.request();
-    if (permission != PermissionStatus.granted) {
+    // Check permission via AudioRecorder (cross-platform: macOS, iOS, Android)
+    final hasPermission = await _audioRecorder.hasPermission();
+    if (!hasPermission) {
       state = state.copyWith(
         status: VoiceInputStatus.error,
         errorMessage: '需要麦克风权限以使用语音输入',
