@@ -28,5 +28,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>WonderBox 需要访问您的麦克风以实现本地语音输入功能。</string>
 </dict>
 </plist>

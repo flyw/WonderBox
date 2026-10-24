@@ -3,10 +3,17 @@ import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 
 class Qwen3ModelManager {
-  static const String _hfBaseUrl =
-      'https://hf-mirror.com/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/main';
+  static const List<String> _baseUrls = [
+    'https://hf-mirror.com/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/main',
+    'https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/resolve/main',
+  ];
 
-  final Dio _dio = Dio();
+  final Dio _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(minutes: 10),
+    ),
+  );
 
   Future<Directory> getModelDir() async {
     final appDir = await getApplicationDocumentsDirectory();
@@ -62,28 +69,50 @@ class Qwen3ModelManager {
         continue;
       }
 
-      final url = '$_hfBaseUrl/$remotePath';
       final fileName = remotePath.split('/').last;
+      onProgress(accumulatedProgress, '准备下载 $fileName (${i + 1}/${files.length})...');
 
-      onProgress(accumulatedProgress, '正在下载 $fileName (${i + 1}/${files.length})...');
+      bool downloaded = false;
+      Object? lastError;
 
-      await _dio.download(
-        url,
-        localFile.path,
-        cancelToken: cancelToken,
-        onReceiveProgress: (received, total) {
-          if (total > 0) {
-            final fileFraction = (received / total) * weight;
-            final currentProgress = (accumulatedProgress + fileFraction).clamp(0.0, 1.0);
-            final mbReceived = (received / 1024 / 1024).toStringAsFixed(1);
-            final mbTotal = (total / 1024 / 1024).toStringAsFixed(1);
-            onProgress(
-              currentProgress,
-              '下载 $fileName: $mbReceived MB / $mbTotal MB',
-            );
+      for (final baseUrl in _baseUrls) {
+        final url = '$baseUrl/$remotePath';
+        try {
+          await _dio.download(
+            url,
+            localFile.path,
+            cancelToken: cancelToken,
+            onReceiveProgress: (received, total) {
+              if (total > 0) {
+                final fileFraction = (received / total) * weight;
+                final currentProgress = (accumulatedProgress + fileFraction).clamp(0.0, 1.0);
+                final mbReceived = (received / 1024 / 1024).toStringAsFixed(1);
+                final mbTotal = (total / 1024 / 1024).toStringAsFixed(1);
+                onProgress(
+                  currentProgress,
+                  '下载 $fileName: $mbReceived MB / $mbTotal MB',
+                );
+              }
+            },
+          );
+          downloaded = true;
+          break;
+        } catch (e) {
+          lastError = e;
+          // If cancelled, stop
+          if (cancelToken?.isCancelled ?? false) {
+            rethrow;
           }
-        },
-      );
+          // Delete partial file if failed
+          if (await localFile.exists()) {
+            await localFile.delete();
+          }
+        }
+      }
+
+      if (!downloaded) {
+        throw Exception('下载 $fileName 失败，所有可用镜像均无法连接: $lastError');
+      }
 
       accumulatedProgress += weight;
     }
