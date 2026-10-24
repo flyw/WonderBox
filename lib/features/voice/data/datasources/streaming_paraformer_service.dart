@@ -105,6 +105,31 @@ class StreamingParaformerService {
     _recognizer?.reset(stream);
   }
 
+  /// Decodes a contiguous buffer of Float32 audio samples (16kHz mono) and returns recognized text.
+  String transcribeSamples(Float32List samples) {
+    if (_recognizer == null) return '';
+    final stream = _recognizer!.createStream();
+    try {
+      const chunkSize = 1600;
+      for (var i = 0; i < samples.length; i += chunkSize) {
+        final end = (i + chunkSize < samples.length) ? i + chunkSize : samples.length;
+        stream.acceptWaveform(samples: samples.sublist(i, end), sampleRate: 16000);
+        while (_recognizer!.isReady(stream)) {
+          _recognizer!.decode(stream);
+        }
+      }
+      stream.acceptWaveform(samples: Float32List(4800), sampleRate: 16000);
+      stream.inputFinished();
+      while (_recognizer!.isReady(stream)) {
+        _recognizer!.decode(stream);
+      }
+      final result = _recognizer!.getResult(stream);
+      return result.text.trim();
+    } finally {
+      stream.free();
+    }
+  }
+
   Float32List _pcm16ToFloat32(Uint8List bytes) {
     final byteData = ByteData.sublistView(bytes);
     final numSamples = bytes.length ~/ 2;

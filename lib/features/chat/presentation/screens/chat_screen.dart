@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../controllers/ambient_assistant_controller.dart';
 import '../controllers/chat_controller.dart';
+import '../widgets/ambient_listening_pill.dart';
 import '../widgets/chat_input_box.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/config_sheet.dart';
@@ -14,6 +16,14 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(ambientAssistantProvider.notifier).startAmbientListening();
+    });
+  }
 
   @override
   void dispose() {
@@ -63,6 +73,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
         actions: [
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+            child: AmbientListeningPill(),
+          ),
           IconButton(
             icon: const Icon(Icons.tune),
             tooltip: 'Model Settings',
@@ -87,6 +101,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
       body: Column(
         children: [
+          const AmbientStatusBar(),
           Expanded(
             child: chatState.messages.isEmpty
                 ? Center(

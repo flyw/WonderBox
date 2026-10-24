@@ -1,0 +1,124 @@
+import 'dart:convert';
+import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/network/dio_client.dart';
+import '../../domain/models/chat_message.dart';
+import '../../domain/models/llm_config.dart';
+
+final topicRelevanceJudgeProvider = Provider<TopicRelevanceJudge>((ref) {
+  final dio = ref.watch(dioClientProvider);
+  return TopicRelevanceJudge(dio);
+});
+
+class TopicRelevanceJudge {
+  final Dio _dio;
+
+  TopicRelevanceJudge(this._dio);
+
+  /// Judges whether [candidatePhrase] is relevant to the ongoing [conversationHistory].
+  Future<bool> judgeRelevance({
+    required String candidatePhrase,
+    required List<ChatMessage> conversationHistory,
+    required LlmConfig config,
+    CancelToken? cancelToken,
+  }) async {
+    final phrase = candidatePhrase.trim();
+    // Ignore micro-fillers or extremely short murmurs
+    if (phrase.length < 2) return false;
+
+    // Filter out common ambient verbal fillers
+    final lower = phrase.toLowerCase();
+    if (const ['嗯', '啊', '哦', '好的好的', '喂', '喂喂', '哈喽'].contains(lower)) {
+      return false;
+    }
+
+    // If conversation is empty, any substantive phrase (>= 3 chars) is considered relevant as topic starter
+    if (conversationHistory.isEmpty) {
+      return phrase.length >= 3;
+    }
+
+    // If no API Key configured, fallback to heuristic acceptance
+    if (config.apiKey.isEmpty) {
+      return phrase.length >= 3;
+    }
+
+    // Prepare concise recent context (last 4 messages)
+    final recentMessages = conversationHistory.length > 4
+        ? conversationHistory.sublist(conversationHistory.length - 4)
+        : conversationHistory;
+
+    final contextBuffer = StringBuffer();
+    for (final m in recentMessages) {
+      final role = m.role == MessageRole.user ? 'User' : 'Assistant';
+      final snippet = m.content.length > 120
+          ? '${m.content.substring(0, 120)}...'
+          : m.content;
+      contextBuffer.writeln('$role: $snippet');
+    }
+
+    final judgePrompt = '''
+你是一个专业对话伴听助手的【意图相关性裁判】。
+请根据当前会话的主题与最新上下文，判断用户刚说的这句话是否属于与当前会话相关的提问、探讨、追问、补充或指令。
+
+【当前会话最新上下文】：
+$contextBuffer
+
+【刚捕获的用户语音短句】：
+"$phrase"
+
+【判定准则】：
+- 如果是在围绕上述会话内容继续提问、发表意见、追问细节或下达指令，判定为相关（YES）。
+- 如果是日常生活闲聊（如接电话、喊人、喝水、打招呼、向旁人讲话等非会话内容），判定为不相关（NO）。
+
+请只输出一个词：YES 或 NO（不要输出任何其他多余文字或标点）。
+''';
+
+    final endpoint = config.baseUrl.endsWith('/')
+        ? '${config.baseUrl}chat/completions'
+        : '${config.baseUrl}/chat/completions';
+
+    final requestBody = {
+      'model': config.model,
+      'messages': [
+        {
+          'role': 'system',
+          'content': '你是一个高精度话题相关性二分类器。严格按要求仅回复 YES 或 NO。',
+        },
+        {'role': 'user', 'content': judgePrompt},
+      ],
+      'temperature': 0.0,
+      'max_tokens': 8,
+      'stream': false,
+    };
+
+    final headers = <String, dynamic>{
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ${config.apiKey}',
+    };
+
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        endpoint,
+        data: jsonEncode(requestBody),
+        cancelToken: cancelToken,
+        options: Options(
+          headers: headers,
+          sendTimeout: const Duration(seconds: 5),
+          receiveTimeout: const Duration(seconds: 5),
+        ),
+      );
+
+      final data = response.data;
+      if (data != null && data['choices'] != null && (data['choices'] as List).isNotEmpty) {
+        final content = (data['choices'][0]['message']['content'] as String? ?? '').trim().toUpperCase();
+        return content.contains('YES');
+      }
+
+      // Default safe fallback if structure is unexpected
+      return false;
+    } catch (e) {
+      // In case of network timeout or judge error, fallback to length check to avoid blocking user
+      return phrase.length >= 4;
+    }
+  }
+}
