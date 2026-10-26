@@ -125,6 +125,7 @@ bool llama_bridge_generate(const char * prompt, int max_tokens, LlamaTokenCallba
     llama_sampler * smpl = llama_sampler_chain_init(sparams);
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.9f, 1));
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist(1337));
 
     llama_batch_ext * batch = llama_batch_ext_init(s_ctx);
     int n_tokens = n_prompt;
@@ -162,6 +163,7 @@ bool llama_bridge_generate(const char * prompt, int max_tokens, LlamaTokenCallba
         n_pos += n_tokens;
 
         new_token_id = llama_sampler_sample(smpl, s_ctx, -1);
+        llama_sampler_accept(smpl, new_token_id);
         if (llama_vocab_is_eog(s_vocab, new_token_id)) {
             break;
         }
