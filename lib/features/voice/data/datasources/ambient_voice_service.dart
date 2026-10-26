@@ -64,9 +64,9 @@ class AmbientVoiceService {
       final vadConfig = sherpa_onnx.VadModelConfig(
         tenVad: sherpa_onnx.TenVadModelConfig(
           model: vadModelPath,
-          threshold: 0.25,
-          minSilenceDuration: 1.0,
-          minSpeechDuration: 0.10,
+          threshold: 0.45,
+          minSilenceDuration: 0.55,
+          minSpeechDuration: 0.12,
           windowSize: 256,
           maxSpeechDuration: 30.0,
         ),
@@ -172,12 +172,21 @@ class AmbientVoiceService {
               onLiveText?.call(_currentLiveText);
             }
 
-            // Reset if silence persists for > 2.0s without a segment
-            if (silenceFramesAfterSpeech > 20) {
+            // Snappy tail cutoff: if user has been silent for ~600ms, force flush VAD
+            if (silenceFramesAfterSpeech >= 6) {
+              _vad!.flush();
+            }
+
+            // Safety fallback: if silence persists for >1.5s and VAD still didn't pop, finalize directly
+            if (silenceFramesAfterSpeech > 15) {
+              final finalPhrase = _paraformerService.finalizeStream(_activeStream!).trim();
               _activeStream?.free();
               _activeStream = null;
               _currentLiveText = '';
               silenceFramesAfterSpeech = 0;
+              if (finalPhrase.isNotEmpty) {
+                onPhraseTranscribed(finalPhrase);
+              }
             }
           }
 
