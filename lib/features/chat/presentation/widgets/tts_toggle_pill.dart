@@ -13,9 +13,16 @@ class TtsTogglePill extends ConsumerWidget {
     final isSpeaking = ttsState.isSpeaking;
 
     final voiceName = ttsState.selectedVoiceName ?? 'Siri';
-    final shortName = voiceName.contains('Siri')
-        ? 'Siri'
-        : (voiceName.length > 4 ? voiceName.substring(0, 4) : voiceName);
+    String shortName = 'Siri';
+    if (voiceName.contains('Voice 4') || voiceName.contains('声音 4') || (voiceName.contains('Siri') && voiceName.contains('4'))) {
+      shortName = 'Siri 4';
+    } else if (voiceName.contains('Siri')) {
+      shortName = 'Siri';
+    } else if (voiceName.length > 4) {
+      shortName = voiceName.substring(0, 4);
+    } else {
+      shortName = voiceName;
+    }
 
     return GestureDetector(
       onLongPress: () => TtsVoiceSheet.show(context),

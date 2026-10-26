@@ -489,14 +489,33 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
         result(true)
       case "getVoices":
         let voices = AVSpeechSynthesisVoice.speechVoices()
-          .filter { $0.language.lowercased().hasPrefix("zh") }
-          .map { [
-            "identifier": $0.identifier,
-            "name": $0.name,
-            "language": $0.language,
-            "quality": $0.quality.rawValue, // 1: default, 2: enhanced, 3: premium
-            "gender": $0.gender.rawValue
-          ] }
+          .map { v -> [String: Any] in
+            var displayName = v.name
+            let id = v.identifier.lowercased()
+            let lowerName = v.name.lowercased()
+            // Format Siri voice names clearly to match iOS Settings
+            if lowerName == "voice 4" || lowerName == "声音 4" || id.contains("voice_4") || id.contains("voice4") {
+              displayName = "Siri (Voice 4)"
+            } else if lowerName == "voice 1" || lowerName == "声音 1" || id.contains("voice_1") {
+              displayName = "Siri (Voice 1)"
+            } else if lowerName == "voice 2" || lowerName == "声音 2" || id.contains("voice_2") {
+              displayName = "Siri (Voice 2)"
+            } else if lowerName == "voice 3" || lowerName == "声音 3" || id.contains("voice_3") {
+              displayName = "Siri (Voice 3)"
+            } else if lowerName == "voice 5" || lowerName == "声音 5" || id.contains("voice_5") {
+              displayName = "Siri (Voice 5)"
+            } else if id.contains("siri") && !lowerName.contains("siri") {
+              displayName = "Siri (\(v.name))"
+            }
+            return [
+              "identifier": v.identifier,
+              "name": displayName,
+              "originalName": v.name,
+              "language": v.language,
+              "quality": v.quality.rawValue, // 1: default, 2: enhanced, 3: premium
+              "gender": v.gender.rawValue
+            ]
+          }
         result(voices)
       case "stop":
         self.stop()
@@ -525,8 +544,28 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
 
-    let utterance = AVSpeechUtterance(string: trimmed)
-    utterance.voice = selectBestVoice(preferredId: voiceIdentifier, language: language)
+    let voice = selectBestVoice(preferredId: voiceIdentifier, language: language)
+
+    // Detect if the target voice is English and text contains Chinese
+    let isEnglishVoice = voice?.language.lowercased().hasPrefix("en") ?? false
+    let containsChinese = trimmed.unicodeScalars.contains { scalar in
+      return (0x4E00...0x9FFF).contains(scalar.value) ||
+             (0x3400...0x4DBF).contains(scalar.value) ||
+             (0x20000...0x2A6DF).contains(scalar.value)
+    }
+
+    var textToSpeak = trimmed
+    if isEnglishVoice && containsChinese {
+      // Transliterate Chinese characters into clean Latin/Pinyin so American Siri voice speaks it fluently
+      if let pinyin = trimmed.applyingTransform(.toLatin, reverse: false)?
+                             .applyingTransform(.stripDiacritics, reverse: false) {
+        textToSpeak = pinyin
+        print("[NativeTTS] Converted Chinese text to Pinyin for English voice (\(voice?.name ?? "en")): \(textToSpeak)")
+      }
+    }
+
+    let utterance = AVSpeechUtterance(string: textToSpeak)
+    utterance.voice = voice
     utterance.rate = rate * AVSpeechUtteranceDefaultSpeechRate * 2.0
     utterance.pitchMultiplier = pitch
     utterance.volume = 1.0
@@ -561,6 +600,17 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
       return isPremiumQuality(v) || isEnhancedQuality(v)
     }
 
+    func isSiriVoice4American(_ v: AVSpeechSynthesisVoice) -> Bool {
+      let lang = v.language.lowercased()
+      guard lang.hasPrefix("en") else { return false }
+      let name = v.name.lowercased()
+      let id = v.identifier.lowercased()
+      let is4 = name.contains("voice 4") || name.contains("声音 4") || name.contains("voice4") ||
+                id.contains("voice_4") || id.contains("voice4") || id.contains("voice-4") ||
+                ((name.contains("siri") || id.contains("siri")) && (name.contains("4") || id.contains("4")))
+      return is4
+    }
+
     func isFemaleVoice(_ v: AVSpeechSynthesisVoice) -> Bool {
       let id = v.identifier.lowercased()
       let name = v.name.lowercased()
@@ -588,20 +638,28 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
              v.identifier.localizedCaseInsensitiveContains("siri")
     }
 
-    // 2. Filter Chinese voices
-    let zhVoices = allVoices.filter { $0.language.lowercased().hasPrefix("zh") }
-    for v in zhVoices {
-      print("[NativeTTS] Available voice: name=\(v.name), id=\(v.identifier), quality=\(v.quality.rawValue), gender=\(v.gender.rawValue), lang=\(v.language)")
-    }
-
-    // Write dump to documents captures for diagnostic verification
+    // Diagnostic dump to captures directory
     if let docDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
       let dumpDir = docDir.appendingPathComponent("captures")
       try? FileManager.default.createDirectory(at: dumpDir, withIntermediateDirectories: true, attributes: nil)
       let dumpPath = dumpDir.appendingPathComponent("installed_voices.txt")
-      let lines = zhVoices.map { "Name: \($0.name) | ID: \($0.identifier) | Quality: \($0.quality.rawValue) | Gender: \($0.gender.rawValue) | Lang: \($0.language)" }.joined(separator: "\n")
+      let lines = allVoices.map { "Name: \($0.name) | ID: \($0.identifier) | Quality: \($0.quality.rawValue) | Gender: \($0.gender.rawValue) | Lang: \($0.language)" }.joined(separator: "\n")
       try? lines.write(to: dumpPath, atomically: true, encoding: .utf8)
     }
+
+    // Priority 0: Siri Voice 4 American (Top user choice)
+    if let v = allVoices.first(where: { isSiriVoice4American($0) }) {
+      print("[NativeTTS] Priority 0 - Selected Siri Voice 4 American: \(v.name) (\(v.identifier))")
+      return v
+    }
+
+    // Priority 0.5: Any other English Siri voice (e.g. Aaron / Nicky / Voice 1)
+    if let v = allVoices.first(where: { $0.language.lowercased().hasPrefix("en") && isSiriVoice($0) && isHighFidelity($0) }) {
+      print("[NativeTTS] Priority 0.5 - Selected English Siri High-Fidelity: \(v.name) (\(v.identifier))")
+      return v
+    }
+
+    let zhVoices = allVoices.filter { $0.language.lowercased().hasPrefix("zh") }
 
     // Priority 1: Siri Female High-Fidelity (.premium / .enhanced)
     if let v = zhVoices.first(where: { isSiriVoice($0) && isFemaleVoice($0) && isHighFidelity($0) }) {

@@ -67,6 +67,22 @@ class TtsNotifier extends Notifier<TtsState> {
   Future<void> loadAvailableVoices() async {
     final voices = await _service.getAvailableVoices();
 
+    bool isSiriVoice4(Map<String, dynamic> v) {
+      final name = (v['name'] as String? ?? '').toLowerCase();
+      final id = (v['identifier'] as String? ?? '').toLowerCase();
+      final lang = (v['language'] as String? ?? '').toLowerCase();
+      final isEn = lang.startsWith('en');
+      final is4 = name.contains('voice 4') ||
+          name.contains('声音 4') ||
+          name.contains('voice4') ||
+          id.contains('voice_4') ||
+          id.contains('voice4') ||
+          id.contains('voice-4') ||
+          ((name.contains('siri') || id.contains('siri')) &&
+              (name.contains('4') || id.contains('4')));
+      return isEn && is4;
+    }
+
     bool isFemale(Map<String, dynamic> v) {
       final name = (v['name'] as String? ?? '').toLowerCase();
       final id = (v['identifier'] as String? ?? '').toLowerCase();
@@ -92,12 +108,32 @@ class TtsNotifier extends Notifier<TtsState> {
       return name.contains('siri') || id.contains('siri');
     }
 
+    bool isEn(Map<String, dynamic> v) {
+      final lang = (v['language'] as String? ?? '').toLowerCase();
+      return lang.startsWith('en');
+    }
+
     int getQuality(Map<String, dynamic> v) {
       return v['quality'] as int? ?? 1;
     }
 
-    // Sort voices: Siri female first, high-fidelity first, other females, etc.
+    // Sort voices:
+    // 1. Siri Voice 4 (American accent) - Absolute top priority
+    // 2. Other English Siri voices
+    // 3. High quality Chinese Siri female voices
+    // 4. Any other Siri voices
+    // 5. Premium / Enhanced voices
+    // 6. Chinese female voices
+    // 7. Alphabetical
     voices.sort((a, b) {
+      final aIs4 = isSiriVoice4(a);
+      final bIs4 = isSiriVoice4(b);
+      if (aIs4 != bIs4) return aIs4 ? -1 : 1;
+
+      final aIsEnSiri = isSiri(a) && isEn(a);
+      final bIsEnSiri = isSiri(b) && isEn(b);
+      if (aIsEnSiri != bIsEnSiri) return aIsEnSiri ? -1 : 1;
+
       final aIsSiriFemale = isSiri(a) && isFemale(a);
       final bIsSiriFemale = isSiri(b) && isFemale(b);
       if (aIsSiriFemale != bIsSiriFemale) return aIsSiriFemale ? -1 : 1;
@@ -120,10 +156,16 @@ class TtsNotifier extends Notifier<TtsState> {
     String? targetId = state.selectedVoiceId;
     String? targetName = state.selectedVoiceName;
 
-    if (targetId == null && voices.isNotEmpty) {
-      final best = voices.first;
-      targetId = best['identifier'] as String?;
-      targetName = best['name'] as String?;
+    if (voices.isNotEmpty) {
+      final siri4Match = voices.where((v) => isSiriVoice4(v)).firstOrNull;
+      if (siri4Match != null && (targetId == null || !voices.any((v) => v['identifier'] == targetId))) {
+        targetId = siri4Match['identifier'] as String?;
+        targetName = siri4Match['name'] as String?;
+      } else if (targetId == null) {
+        final best = voices.first;
+        targetId = best['identifier'] as String?;
+        targetName = best['name'] as String?;
+      }
     }
 
     state = state.copyWith(
