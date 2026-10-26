@@ -160,8 +160,25 @@ bool llama_bridge_generate(const char * prompt, const void * image_data, size_t 
         } else {
             std::string prompt_str(prompt);
             const std::string marker = mtmd_default_marker(); // "<__media__>"
-            if (prompt_str.find(marker) == std::string::npos) {
-                // Ensure media marker is present in prompt for mtmd_tokenize
+
+            // Count occurrences of marker
+            size_t count = 0;
+            size_t p = 0;
+            while ((p = prompt_str.find(marker, p)) != std::string::npos) {
+                count++;
+                p += marker.length();
+            }
+
+            // We have exactly 1 bitmap. Ensure there is exactly 1 marker in prompt_str.
+            if (count > 1) {
+                // Replace earlier occurrences with [历史现场画面], keeping only the last marker
+                for (size_t i = 0; i < count - 1; ++i) {
+                    size_t pos = prompt_str.find(marker);
+                    if (pos != std::string::npos) {
+                        prompt_str.replace(pos, marker.length(), "[历史现场画面]");
+                    }
+                }
+            } else if (count == 0) {
                 prompt_str = marker + "\n" + prompt_str;
             }
 

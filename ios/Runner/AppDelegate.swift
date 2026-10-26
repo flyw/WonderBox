@@ -148,7 +148,17 @@ import Network
     var imageData: Data? = nil
 
     if let messages = json["messages"] as? [[String: Any]] {
-      for msg in messages {
+      // Find the index of the latest message that contains an image
+      var lastImageIndex = -1
+      for (idx, msg) in messages.enumerated() {
+        if let arr = msg["content"] as? [[String: Any]] {
+          if arr.contains(where: { ($0["type"] as? String) == "image_url" }) {
+            lastImageIndex = idx
+          }
+        }
+      }
+
+      for (idx, msg) in messages.enumerated() {
         let role = msg["role"] as? String ?? "user"
         var contentText = ""
         if let str = msg["content"] as? String {
@@ -161,26 +171,30 @@ import Network
             } else if let type = item["type"] as? String, type == "image_url",
                       let imgUrlObj = item["image_url"] as? [String: Any],
                       let urlStr = imgUrlObj["url"] as? String {
-              if urlStr.hasPrefix("data:image/") {
-                if let commaIdx = urlStr.firstIndex(of: ",") {
-                  let b64 = String(urlStr[urlStr.index(after: commaIdx)...])
-                  if let decoded = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) {
-                    imageData = decoded
+              if idx == lastImageIndex {
+                if urlStr.hasPrefix("data:image/") {
+                  if let commaIdx = urlStr.firstIndex(of: ",") {
+                    let b64 = String(urlStr[urlStr.index(after: commaIdx)...])
+                    if let decoded = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) {
+                      imageData = decoded
+                      hasImageInMsg = true
+                    }
+                  }
+                } else if urlStr.hasPrefix("file://") || urlStr.hasPrefix("/") {
+                  let cleanPath = urlStr.replacingOccurrences(of: "file://", with: "")
+                  if let data = try? Data(contentsOf: URL(fileURLWithPath: cleanPath)) {
+                    imageData = data
                     hasImageInMsg = true
                   }
-                }
-              } else if urlStr.hasPrefix("file://") || urlStr.hasPrefix("/") {
-                let cleanPath = urlStr.replacingOccurrences(of: "file://", with: "")
-                if let data = try? Data(contentsOf: URL(fileURLWithPath: cleanPath)) {
-                  imageData = data
-                  hasImageInMsg = true
                 }
               }
             }
           }
-          if hasImageInMsg {
+          if hasImageInMsg && idx == lastImageIndex {
             let marker = String(cString: llama_bridge_get_media_marker())
             contentText = "\(marker)\n" + contentText
+          } else if arr.contains(where: { ($0["type"] as? String) == "image_url" }) {
+            contentText = "[历史现场画面]\n" + contentText
           }
         }
         prompt += "<|im_start|>\(role)\n\(contentText)<|im_end|>\n"
