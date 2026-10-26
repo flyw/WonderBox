@@ -64,7 +64,7 @@ class AmbientVoiceService {
       final vadConfig = sherpa_onnx.VadModelConfig(
         tenVad: sherpa_onnx.TenVadModelConfig(
           model: vadModelPath,
-          threshold: 0.45,
+          threshold: 0.35,
           minSilenceDuration: 0.55,
           minSpeechDuration: 0.12,
           windowSize: 256,
@@ -99,10 +99,9 @@ class AmbientVoiceService {
       var residualSamples = Float32List(0);
       const windowSize = 256;
 
-      // Rolling pre-speech buffer (~500ms) to ensure speech onset is never lost
+      // Rolling pre-speech buffer (~400ms) to ensure speech onset is never lost
       final preSpeechBuffer = <Uint8List>[];
-      const maxPreSpeechChunks = 5;
-      var silenceFramesAfterSpeech = 0;
+      const maxPreSpeechChunks = 4;
 
       _recordStreamSub?.cancel();
       _recordStreamSub = recordStream.listen(
@@ -140,53 +139,29 @@ class AmbientVoiceService {
           if (detected != _lastDetectedState) {
             _lastDetectedState = detected;
             onSpeechDetectedChanged?.call(detected);
+          }
 
-            if (detected && _activeStream == null) {
-              // Speech started: initialize stream and immediately feed all pre-speech chunks
-              _activeStream = _paraformerService.createStream();
-              _currentLiveText = '';
-              silenceFramesAfterSpeech = 0;
+          if (detected && _activeStream == null) {
+            // Speech started: initialize stream and immediately feed all pre-speech chunks
+            _activeStream = _paraformerService.createStream();
+            _currentLiveText = '';
 
-              for (final preChunk in preSpeechBuffer) {
-                final preHypothesis = _paraformerService.processChunk(_activeStream!, preChunk);
-                if (preHypothesis.isNotEmpty) {
-                  _currentLiveText = preHypothesis;
-                  onLiveText?.call(_currentLiveText);
-                }
+            for (final preChunk in preSpeechBuffer) {
+              final preHypothesis = _paraformerService.processChunk(_activeStream!, preChunk);
+              if (preHypothesis.isNotEmpty) {
+                _currentLiveText = preHypothesis;
+                onLiveText?.call(_currentLiveText);
               }
-              preSpeechBuffer.clear();
             }
+            preSpeechBuffer.clear();
           }
 
           // If active stream is recording speech, feed chunk for live typewriter feedback
           if (_activeStream != null) {
-            if (detected) {
-              silenceFramesAfterSpeech = 0;
-            } else {
-              silenceFramesAfterSpeech++;
-            }
-
             final liveHypothesis = _paraformerService.processChunk(_activeStream!, chunk);
             if (liveHypothesis.isNotEmpty && liveHypothesis != _currentLiveText) {
               _currentLiveText = liveHypothesis;
               onLiveText?.call(_currentLiveText);
-            }
-
-            // Snappy tail cutoff: if user has been silent for ~600ms, force flush VAD
-            if (silenceFramesAfterSpeech >= 6) {
-              _vad!.flush();
-            }
-
-            // Safety fallback: if silence persists for >1.5s and VAD still didn't pop, finalize directly
-            if (silenceFramesAfterSpeech > 15) {
-              final finalPhrase = _paraformerService.finalizeStream(_activeStream!).trim();
-              _activeStream?.free();
-              _activeStream = null;
-              _currentLiveText = '';
-              silenceFramesAfterSpeech = 0;
-              if (finalPhrase.isNotEmpty) {
-                onPhraseTranscribed(finalPhrase);
-              }
             }
           }
 
@@ -209,7 +184,6 @@ class AmbientVoiceService {
             _activeStream = null;
             _currentLiveText = '';
             preSpeechBuffer.clear();
-            silenceFramesAfterSpeech = 0;
 
             if (finalPhrase.isNotEmpty) {
               onPhraseTranscribed(finalPhrase);
