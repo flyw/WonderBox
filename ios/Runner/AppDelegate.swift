@@ -143,8 +143,10 @@ import Network
     let isStream = json["stream"] as? Bool ?? true
     let maxTokens = json["max_tokens"] as? Int ?? 256
 
-    // Extract prompt from messages
+    // Extract prompt and optional multimodal image from messages
     var prompt = ""
+    var imageData: Data? = nil
+
     if let messages = json["messages"] as? [[String: Any]] {
       for msg in messages {
         let role = msg["role"] as? String ?? "user"
@@ -152,10 +154,33 @@ import Network
         if let str = msg["content"] as? String {
           contentText = str
         } else if let arr = msg["content"] as? [[String: Any]] {
+          var hasImageInMsg = false
           for item in arr {
             if let t = item["text"] as? String {
               contentText += t
+            } else if let type = item["type"] as? String, type == "image_url",
+                      let imgUrlObj = item["image_url"] as? [String: Any],
+                      let urlStr = imgUrlObj["url"] as? String {
+              if urlStr.hasPrefix("data:image/") {
+                if let commaIdx = urlStr.firstIndex(of: ",") {
+                  let b64 = String(urlStr[urlStr.index(after: commaIdx)...])
+                  if let decoded = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) {
+                    imageData = decoded
+                    hasImageInMsg = true
+                  }
+                }
+              } else if urlStr.hasPrefix("file://") || urlStr.hasPrefix("/") {
+                let cleanPath = urlStr.replacingOccurrences(of: "file://", with: "")
+                if let data = try? Data(contentsOf: URL(fileURLWithPath: cleanPath)) {
+                  imageData = data
+                  hasImageInMsg = true
+                }
+              }
             }
+          }
+          if hasImageInMsg {
+            let marker = String(cString: llama_bridge_get_media_marker())
+            contentText = "\(marker)\n" + contentText
           }
         }
         prompt += "<|im_start|>\(role)\n\(contentText)<|im_end|>\n"
@@ -164,6 +189,9 @@ import Network
     } else {
       prompt = "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n"
     }
+
+    let imgBytes = (imageData as NSData?)?.bytes
+    let imgCount = imageData?.count ?? 0
 
     if !isStream {
       // Non-streaming response: accumulate tokens and return JSON
@@ -190,7 +218,7 @@ import Network
       let userPtr = Unmanaged.passRetained(nonStreamCtx).toOpaque()
 
       DispatchQueue.global(qos: .userInitiated).async {
-        llama_bridge_generate(prompt, Int32(maxTokens), { tokenPtr, isDone, uData in
+        llama_bridge_generate(prompt, imgBytes, imgCount, Int32(maxTokens), { tokenPtr, isDone, uData in
           guard let uData = uData else { return }
           let ctx = Unmanaged<NonStreamContext>.fromOpaque(uData).takeUnretainedValue()
           if isDone {
@@ -232,7 +260,7 @@ import Network
     let userPtr = Unmanaged.passRetained(streamCtx).toOpaque()
 
     DispatchQueue.global(qos: .userInitiated).async {
-      llama_bridge_generate(prompt, Int32(maxTokens), { tokenPtr, isDone, uData in
+      llama_bridge_generate(prompt, imgBytes, imgCount, Int32(maxTokens), { tokenPtr, isDone, uData in
         guard let uData = uData else { return }
         let ctx = Unmanaged<StreamContext>.fromOpaque(uData).takeUnretainedValue()
         if isDone {
@@ -246,10 +274,6 @@ import Network
   }
 
   private func ensureModelLoaded() {
-    if llama_bridge_is_loaded() {
-      return
-    }
-
     let fileManager = FileManager.default
     guard let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
 
@@ -259,10 +283,37 @@ import Network
       docDir.appendingPathComponent("models/jev_style/Jev-Style-0.8B-Decision-v3-Q4_K_M.gguf").path,
     ]
 
+    let mmprojCandidates = [
+      docDir.appendingPathComponent("models/minicpm_v/mmproj-model-q4.gguf").path,
+      docDir.appendingPathComponent("models/minicpm_v/mmproj-model-f16.gguf").path,
+    ]
+
+    var mmprojPath: String? = nil
+    for mPath in mmprojCandidates {
+      if fileManager.fileExists(atPath: mPath) {
+        mmprojPath = mPath
+        break
+      }
+    }
+
+    if llama_bridge_is_loaded() {
+      // If loaded but missing vision while mmproj is present, reload with vision
+      if mmprojPath != nil && !llama_bridge_has_vision() {
+        print("[OnDeviceLlama] Model loaded without vision, reloading with projector: \(mmprojPath!)")
+      } else {
+        return
+      }
+    }
+
     for path in candidates {
       if fileManager.fileExists(atPath: path) {
         print("[OnDeviceLlama] Loading model into Apple Metal memory from: \(path)")
-        _ = llama_bridge_load_model(path, 99, 2048)
+        if path.contains("minicpm_v") && mmprojPath != nil {
+          print("[OnDeviceLlama] Attaching vision projector: \(mmprojPath!)")
+          _ = llama_bridge_load_model(path, mmprojPath!, 99, 3072)
+        } else {
+          _ = llama_bridge_load_model(path, nil, 99, 2048)
+        }
         return
       }
     }

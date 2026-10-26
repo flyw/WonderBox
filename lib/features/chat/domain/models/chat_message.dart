@@ -69,7 +69,9 @@ class ChatMessage {
             'content': [
               {
                 'type': 'text',
-                'text': content.isNotEmpty ? content : '（附带当前现场摄像头捕获画面）',
+                'text': content.trim().isNotEmpty
+                  ? content
+                  : '请结合捕获的现场画面，详细分析并描述你看到了什么。',
               },
               {
                 'type': 'image_url',
