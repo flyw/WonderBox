@@ -151,7 +151,12 @@ class ChatController extends Notifier<ChatState> {
       // Check if trying to connect to a localhost address that is not responding
       if (effectiveConfig.baseUrl.contains('127.0.0.1') ||
           effectiveConfig.baseUrl.contains('localhost')) {
-        final isUp = await localMiniCpmService.isServerRunning();
+        var isUp = await localMiniCpmService.isServerRunning();
+        if (!isUp && (Platform.isIOS || Platform.isAndroid)) {
+          // Allow a brief moment for embedded loopback server to finish port binding
+          await Future.delayed(const Duration(milliseconds: 600));
+          isUp = await localMiniCpmService.isServerRunning();
+        }
         if (!isUp) {
           final isMobile = Platform.isIOS || Platform.isAndroid;
           accumulatedReasoning =

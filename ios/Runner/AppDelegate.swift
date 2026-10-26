@@ -12,10 +12,23 @@ import Network
   ) -> Bool {
     let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
     
+    // Keep device screen active during session to prevent unexpected suspension
+    UIApplication.shared.isIdleTimerDisabled = true
+
     // Start on-device in-process Metal inference server on 127.0.0.1:58588
-    startOnDeviceLlamaServer()
+    ensureServerRunning()
     
     return result
+  }
+
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    super.applicationDidBecomeActive(application)
+    ensureServerRunning()
+  }
+
+  override func applicationWillEnterForeground(_ application: UIApplication) {
+    super.applicationWillEnterForeground(application)
+    ensureServerRunning()
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -23,6 +36,17 @@ import Network
   }
 
   // MARK: - In-Process On-Device Inference Server (127.0.0.1:58588)
+  func ensureServerRunning() {
+    if let listener = llamaListener {
+      if listener.state == .ready {
+        return
+      }
+      listener.cancel()
+      llamaListener = nil
+    }
+    startOnDeviceLlamaServer()
+  }
+
   private func startOnDeviceLlamaServer() {
     do {
       let params = NWParameters.tcp
@@ -33,12 +57,17 @@ import Network
         self?.handleConnection(connection)
       }
       
-      listener.stateUpdateHandler = { state in
+      listener.stateUpdateHandler = { [weak self] state in
         switch state {
         case .ready:
           print("[OnDeviceLlama] ✅ Native Metal inference server is LIVE on 127.0.0.1:58588")
         case .failed(let err):
-          print("[OnDeviceLlama] Server failed: \(err)")
+          print("[OnDeviceLlama] ⚠️ Server failed: \(err), auto-recovering in 1s...")
+          DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1.0) {
+            self?.ensureServerRunning()
+          }
+        case .cancelled:
+          print("[OnDeviceLlama] Server listener cancelled")
         default:
           break
         }
@@ -59,7 +88,6 @@ import Network
     connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] content, _, isComplete, error in
       guard let self = self else { return }
       if let error = error {
-        print("[OnDeviceLlama] Connection error: \(error)")
         connection.cancel()
         return
       }
@@ -69,28 +97,27 @@ import Network
         currentData.append(content)
       }
 
-      guard let requestString = String(data: currentData, encoding: .utf8) else {
-        if isComplete { connection.cancel() }
-        return
-      }
-
-      // Check if full HTTP header received
-      if let headerEndRange = requestString.range(of: "\r\n\r\n") {
-        let headers = String(requestString[..<headerEndRange.lowerBound])
+      // Check for header termination in raw bytes "\r\n\r\n" to avoid UTF-8 chunk boundary splits
+      let headerSeparator = Data([0x0D, 0x0A, 0x0D, 0x0A])
+      if let headerRange = currentData.range(of: headerSeparator) {
+        let headerData = currentData.subdata(in: 0..<headerRange.lowerBound)
+        let headerString = String(data: headerData, encoding: .utf8) ?? ""
         var contentLength = 0
-        for line in headers.components(separatedBy: "\r\n") {
+        for line in headerString.components(separatedBy: "\r\n") {
           if line.lowercased().hasPrefix("content-length:") {
             let val = line.components(separatedBy: ":").last?.trimmingCharacters(in: .whitespaces) ?? ""
             contentLength = Int(val) ?? 0
           }
         }
 
-        let bodyStartIndex = requestString.utf8.distance(from: requestString.startIndex, to: headerEndRange.upperBound)
+        let bodyStartIndex = headerRange.upperBound
         let bodyReceivedBytes = currentData.count - bodyStartIndex
 
         if bodyReceivedBytes >= contentLength {
-          let bodyString = String(requestString[headerEndRange.upperBound...])
-          self.processHTTPRequest(firstLine: headers.components(separatedBy: "\r\n").first ?? "", jsonBody: bodyString, connection: connection)
+          let bodyData = currentData.subdata(in: bodyStartIndex..<currentData.count)
+          let bodyString = String(data: bodyData, encoding: .utf8) ?? ""
+          let firstLine = headerString.components(separatedBy: "\r\n").first ?? ""
+          self.processHTTPRequest(firstLine: firstLine, jsonBody: bodyString, connection: connection)
         } else if isComplete {
           connection.cancel()
         } else {
@@ -104,17 +131,24 @@ import Network
     }
   }
 
+  private func sendHTTPResponse(connection: NWConnection, statusCode: Int, contentType: String, body: String) {
+    let bodyData = body.data(using: .utf8) ?? Data()
+    let headers = "HTTP/1.1 \(statusCode) OK\r\nContent-Type: \(contentType)\r\nContent-Length: \(bodyData.count)\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: *\r\nConnection: close\r\n\r\n"
+    var fullData = headers.data(using: .utf8) ?? Data()
+    fullData.append(bodyData)
+    connection.send(content: fullData, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
+  }
+
   private func processHTTPRequest(firstLine: String, jsonBody: String, connection: NWConnection) {
     if firstLine.hasPrefix("OPTIONS ") {
       let response = "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: *\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
-      connection.send(content: response.data(using: .utf8), completion: .contentProcessed({ _ in connection.cancel() }))
+      connection.send(content: response.data(using: .utf8), contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
       return
     }
 
     if firstLine.contains("/health") || firstLine.contains("/models") {
       let body = "{\"status\":\"ready\",\"engine\":\"ios-metal-on-device\",\"model\":\"MiniCPM-V-4.6\"}"
-      let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\nContent-Length: \(body.utf8.count)\r\n\r\n\(body)"
-      connection.send(content: response.data(using: .utf8), completion: .contentProcessed({ _ in connection.cancel() }))
+      sendHTTPResponse(connection: connection, statusCode: 200, contentType: "application/json", body: body)
       return
     }
 
@@ -125,7 +159,7 @@ import Network
 
     // Default fallback
     let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-    connection.send(content: resp.data(using: .utf8), completion: .contentProcessed({ _ in connection.cancel() }))
+    connection.send(content: resp.data(using: .utf8), contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
   }
 
   private func handleChatCompletions(jsonString: String, connection: NWConnection) {
@@ -206,19 +240,27 @@ import Network
       class NonStreamContext {
         let connection: NWConnection
         var accumulated = ""
+        var isClosed = false
         init(connection: NWConnection) { self.connection = connection }
         func addToken(_ t: String) { accumulated += t }
         func finish() {
-          let escaped = accumulated
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-          let body = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"\(escaped)\"}}]}"
-          let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\nContent-Length: \(body.utf8.count)\r\n\r\n\(body)"
-          connection.send(content: response.data(using: .utf8), completion: .contentProcessed({ _ in
-            self.connection.cancel()
-          }))
+          guard !isClosed else { return }
+          isClosed = true
+          let dict: [String: Any] = [
+            "choices": [
+              [
+                "message": [
+                  "role": "assistant",
+                  "content": accumulated
+                ]
+              ]
+            ]
+          ]
+          let bodyData = (try? JSONSerialization.data(withJSONObject: dict)) ?? Data()
+          let headers = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\nContent-Length: \(bodyData.count)\r\n\r\n"
+          var resp = headers.data(using: .utf8) ?? Data()
+          resp.append(bodyData)
+          connection.send(content: resp, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
         }
       }
 
@@ -246,21 +288,33 @@ import Network
 
     class StreamContext {
       let connection: NWConnection
+      var isClosed = false
       init(connection: NWConnection) { self.connection = connection }
       func sendChunk(token: String) {
-        let escaped = token
-          .replacingOccurrences(of: "\\", with: "\\\\")
-          .replacingOccurrences(of: "\"", with: "\\\"")
-          .replacingOccurrences(of: "\n", with: "\\n")
-          .replacingOccurrences(of: "\r", with: "\\r")
-        let chunk = "data: {\"choices\":[{\"delta\":{\"content\":\"\(escaped)\"}}]}\n\n"
-        connection.send(content: chunk.data(using: .utf8), completion: .contentProcessed({ _ in }))
+        guard !isClosed else { return }
+        let dict: [String: Any] = [
+          "choices": [
+            [
+              "delta": [
+                "content": token
+              ]
+            ]
+          ]
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: dict),
+              let jsonStr = String(data: data, encoding: .utf8) else { return }
+        let chunk = "data: \(jsonStr)\n\n"
+        connection.send(content: chunk.data(using: .utf8), completion: .contentProcessed({ error in
+          if error != nil {
+            self.isClosed = true
+          }
+        }))
       }
       func finish() {
+        guard !isClosed else { return }
+        isClosed = true
         let done = "data: [DONE]\n\n"
-        connection.send(content: done.data(using: .utf8), completion: .contentProcessed({ _ in
-          self.connection.cancel()
-        }))
+        connection.send(content: done.data(using: .utf8), contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
       }
     }
 

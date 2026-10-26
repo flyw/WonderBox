@@ -130,8 +130,8 @@ $contextBuffer
         cancelToken: cancelToken,
         options: Options(
           headers: headers,
-          sendTimeout: const Duration(seconds: 5),
-          receiveTimeout: const Duration(seconds: 5),
+          sendTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 15),
         ),
       );
 

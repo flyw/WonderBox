@@ -134,13 +134,18 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
   }
 
   Future<void> _handlePhraseTranscribed(String phrase) async {
+    final chatState = ref.read(chatControllerProvider);
+    if (chatState.isStreaming) {
+      debugPrint('[AmbientAssistant] Chat is actively streaming, skipping overlapping phrase: "$phrase"');
+      return;
+    }
+
     state = state.copyWith(
       liveText: '',
       lastTranscribedPhrase: phrase,
       statusMessage: '⚖️ Jev-Style-0.8B 正在判别: "$phrase"...',
     );
 
-    final chatState = ref.read(chatControllerProvider);
     final config = ref.read(llmConfigProvider);
     final judge = ref.read(topicRelevanceJudgeProvider);
 
