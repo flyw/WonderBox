@@ -25,6 +25,8 @@ class LlmRemoteDataSource {
         ? '${config.baseUrl}chat/completions'
         : '${config.baseUrl}/chat/completions';
 
+    final hasImages = messages.any((m) => m.imagePath != null && m.imagePath!.isNotEmpty);
+
     final requestMessages = [
       if (config.systemPrompt.isNotEmpty)
         {'role': 'system', 'content': config.systemPrompt},
@@ -65,8 +67,79 @@ class LlmRemoteDataSource {
         yield const LlmStreamChunk(isDone: true);
         return;
       }
-      final errorMsg = e.response?.data != null ? '${e.message}: ${e.response?.data}' : e.message;
-      throw Exception('LLM Stream Error: $errorMsg');
+
+      // Read response error body from byte stream if available
+      String? errorBody;
+      final responseData = e.response?.data;
+      if (responseData is ResponseBody) {
+        try {
+          final bytes = await responseData.stream.expand((chunk) => chunk).toList();
+          errorBody = utf8.decode(bytes);
+        } catch (_) {}
+      } else if (responseData != null) {
+        errorBody = responseData.toString();
+      }
+
+      final fullError = errorBody ?? e.message ?? '';
+
+      // If the error is due to image input not being supported (e.g. text-only model or missing mmproj),
+      // gracefully retry once with text-only message format so the conversation continues seamlessly.
+      if (hasImages &&
+          (fullError.contains('image input is not supported') ||
+              fullError.contains('mmproj') ||
+              fullError.contains('image_url') ||
+              e.response?.statusCode == 400 ||
+              e.response?.statusCode == 500)) {
+        yield const LlmStreamChunk(
+          reasoning: '【多模态视界兼容】当前目标模型未挂载视觉投影(mmproj)或为纯文本模型，自动降级为语义分析。\n',
+        );
+
+        final textOnlyMessages = [
+          if (config.systemPrompt.isNotEmpty)
+            {'role': 'system', 'content': config.systemPrompt},
+          ...messages.map((m) => {
+                'role': m.role.name,
+                'content': m.imagePath != null && m.imagePath!.isNotEmpty
+                    ? '${m.content} [现场画面已捕获]'
+                    : m.content,
+              }),
+        ];
+
+        try {
+          final fallbackResponse = await _dio.post<ResponseBody>(
+            endpoint,
+            data: jsonEncode({
+              'model': config.model,
+              'messages': textOnlyMessages,
+              'temperature': config.temperature,
+              'stream': true,
+            }),
+            cancelToken: cancelToken,
+            options: Options(
+              headers: headers,
+              responseType: ResponseType.stream,
+            ),
+          );
+
+          final fallbackStream = fallbackResponse.data?.stream;
+          if (fallbackStream != null) {
+            yield* SseTransformer.parse(fallbackStream);
+            return;
+          }
+        } catch (_) {
+          // If fallback also fails, rethrow original error below
+        }
+      }
+
+      if (e.type == DioExceptionType.connectionError ||
+          fullError.contains('Connection refused') ||
+          fullError.contains('errno = 61')) {
+        throw Exception(
+          '无法连接到模型推理服务 ($endpoint)。若使用本地端侧模型，请确保服务已启动；若在手机端体验，请在设置中配置电脑局域网 IP 或云端 API Key。',
+        );
+      }
+
+      throw Exception('LLM Stream Error: ${errorBody ?? e.message}');
     } catch (e) {
       throw Exception('Unexpected error during LLM streaming: $e');
     }

@@ -48,6 +48,10 @@ class LocalMiniCpmService {
 
   /// Finds the llama-server binary in common locations or system PATH
   Future<String?> findLlamaServerBinary() async {
+    if (Platform.isIOS || Platform.isAndroid) {
+      return null;
+    }
+
     final candidates = [
       '/opt/homebrew/bin/llama-server',
       '/usr/local/bin/llama-server',
@@ -70,10 +74,15 @@ class LocalMiniCpmService {
     return null;
   }
 
-  /// Ensures llama-server is started with MiniCPM-V-4.6 GGUF
+  /// Ensures llama-server is started with MiniCPM-V-4.6 GGUF (and mmproj for multimodal vision if present)
   Future<bool> startServerIfNeeded() async {
     if (await isServerRunning()) {
       return true;
+    }
+
+    if (Platform.isIOS || Platform.isAndroid) {
+      // Mobile sandbox does not support running external server processes
+      return false;
     }
 
     final isDownloaded = await _modelManager.isModelDownloaded();
@@ -89,22 +98,28 @@ class LocalMiniCpmService {
     }
 
     final modelPath = await _modelManager.getModelPath();
-    debugPrint('[LocalMiniCpmService] Launching $binary with model $modelPath on port $port');
+    final hasMmproj = await _modelManager.isMmprojDownloaded();
+    final mmprojPath = await _modelManager.getMmprojPath();
+
+    final serverArgs = [
+      '-m',
+      modelPath,
+      if (hasMmproj) ...['--mmproj', mmprojPath],
+      '--port',
+      '$port',
+      '--host',
+      '0.0.0.0', // Bind to all interfaces so phones on LAN can connect
+      '-c',
+      '2048',
+      '--log-disable',
+    ];
+
+    debugPrint('[LocalMiniCpmService] Launching $binary with args $serverArgs');
 
     try {
       _serverProcess = await Process.start(
         binary,
-        [
-          '-m',
-          modelPath,
-          '--port',
-          '$port',
-          '--host',
-          '127.0.0.1',
-          '-c',
-          '2048',
-          '--log-disable',
-        ],
+        serverArgs,
         mode: ProcessStartMode.normal,
       );
 

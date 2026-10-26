@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../controllers/chat_controller.dart';
@@ -42,11 +43,22 @@ class _ConfigSheetState extends ConsumerState<ConfigSheet> {
       _baseUrlController.text = 'https://api.openai.com/v1';
       _modelController.text = 'gpt-4o-mini';
     } else if (name == 'MiniCPM-V-4.6 (本地端侧)') {
-      _baseUrlController.text = 'http://127.0.0.1:58588/v1';
+      if (Platform.isIOS || Platform.isAndroid) {
+        _baseUrlController.text = 'http://192.168.99.160:58588/v1';
+      } else {
+        _baseUrlController.text = 'http://127.0.0.1:58588/v1';
+      }
       _modelController.text = 'MiniCPM-V-4.6';
       _apiKeyController.text = 'local-minicpm';
+    } else if (name == 'SiliconFlow (硅基流动)') {
+      _baseUrlController.text = 'https://api.siliconflow.cn/v1';
+      _modelController.text = 'deepseek-ai/DeepSeek-V3';
     } else if (name == 'Ollama (Local)') {
-      _baseUrlController.text = 'http://localhost:11434/v1';
+      if (Platform.isIOS || Platform.isAndroid) {
+        _baseUrlController.text = 'http://192.168.99.160:11434/v1';
+      } else {
+        _baseUrlController.text = 'http://localhost:11434/v1';
+      }
       _modelController.text = 'llama3.2';
     }
     setState(() {});
@@ -96,7 +108,11 @@ class _ConfigSheetState extends ConsumerState<ConfigSheet> {
               children: [
                 ActionChip(
                   avatar: const Icon(Icons.bolt, size: 16, color: Colors.amber),
-                  label: const Text('MiniCPM-V-4.6 (本地端侧)'),
+                  label: Text(
+                    Platform.isIOS || Platform.isAndroid
+                        ? 'MiniCPM-V (局域网Mac端侧)'
+                        : 'MiniCPM-V-4.6 (本地端侧)',
+                  ),
                   onPressed: () => _applyPreset('MiniCPM-V-4.6 (本地端侧)'),
                 ),
                 ActionChip(
@@ -108,8 +124,12 @@ class _ConfigSheetState extends ConsumerState<ConfigSheet> {
                   onPressed: () => _applyPreset('DeepSeek R1'),
                 ),
                 ActionChip(
-                  label: const Text('OpenAI'),
+                  label: const Text('OpenAI (GPT-4o)'),
                   onPressed: () => _applyPreset('OpenAI'),
+                ),
+                ActionChip(
+                  label: const Text('SiliconFlow (硅基流动)'),
+                  onPressed: () => _applyPreset('SiliconFlow (硅基流动)'),
                 ),
                 ActionChip(
                   label: const Text('Ollama (Local)'),
@@ -120,10 +140,14 @@ class _ConfigSheetState extends ConsumerState<ConfigSheet> {
             const SizedBox(height: 16),
             TextField(
               controller: _baseUrlController,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Base URL',
                 hintText: 'https://api.deepseek.com',
-                border: OutlineInputBorder(),
+                helperText: (Platform.isIOS || Platform.isAndroid) &&
+                        _baseUrlController.text.contains('58588')
+                    ? '💡 手机端连接 Mac 端侧服务需在同一 Wi-Fi 下填入 Mac IP'
+                    : null,
+                border: const OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 14),

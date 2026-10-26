@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -103,9 +104,9 @@ class ChatController extends Notifier<ChatState> {
 
     String accumulatedContent = '';
     String accumulatedReasoning = '';
+    LlmConfig effectiveConfig = config;
 
     try {
-      LlmConfig effectiveConfig = config;
 
       // Check if local MiniCPM-V-4.6 engine is available or requested
       final isLocalRequested = config.baseUrl.contains('127.0.0.1') ||
@@ -147,6 +148,53 @@ class ChatController extends Notifier<ChatState> {
         return;
       }
 
+      // Check if trying to connect to a localhost address that is not responding
+      if (effectiveConfig.baseUrl.contains('127.0.0.1') ||
+          effectiveConfig.baseUrl.contains('localhost')) {
+        final isUp = await localMiniCpmService.isServerRunning();
+        if (!isUp) {
+          final isMobile = Platform.isIOS || Platform.isAndroid;
+          accumulatedReasoning =
+              '【MiniCPM-V-4.6 端侧连接诊断】\n'
+              '• 目标服务：${effectiveConfig.baseUrl}\n'
+              '• 运行环境：${Platform.operatingSystem}\n'
+              '• 诊断状态：58588 端口未响应（未检测到本地 llama-server 服务）';
+
+          if (isMobile) {
+            accumulatedContent =
+                '⚠️ **未能连接到 MiniCPM-V-4.6 端侧推理服务**\n\n'
+                '由于手机操作系统沙盒机制，iOS 无法在 App 内直接运行外部 llama-server 进程。\n\n'
+                '**如何畅享伴听分析**：\n'
+                '1. **电脑端侧局域网联动**：\n'
+                '   • 在 Mac 终端运行：`llama-server -m MiniCPM-V-4_6-Q4_K_M.gguf --mmproj mmproj-model-f16.gguf --port 58588 --host 0.0.0.0`\n'
+                '   • 点击右上角 **⚙️ 设置**，将 Base URL 改为您的电脑 IP（例如 `http://192.168.99.160:58588/v1`）；\n'
+                '2. **配置云端模型**：\n'
+                '   • 点击右上角 **⚙️ 设置** 填入 DeepSeek 或 OpenAI API Key 即可全功能畅享多模态回复。';
+          } else {
+            accumulatedContent =
+                '⚠️ **本地 MiniCPM-V-4.6 服务尚未就绪**\n\n'
+                '• 目标地址：`${effectiveConfig.baseUrl}`\n'
+                '• 请确保已安装并启动本地 `llama-server`（绑定 `--port 58588` 并挂载 `--mmproj` 视觉权重）；\n'
+                '• 或在右上角 **⚙️ 设置** 中配置 DeepSeek / OpenAI API Key。';
+          }
+
+          state = state.copyWith(
+            messages: state.messages.map((msg) {
+              if (msg.id == assistantMessageId) {
+                return msg.copyWith(
+                  content: accumulatedContent,
+                  reasoning: accumulatedReasoning,
+                );
+              }
+              return msg;
+            }).toList(),
+          );
+
+          _finalizeMessage(assistantMessageId, MessageStatus.completed);
+          return;
+        }
+      }
+
       final stream = repository.streamChat(
         messages: state.messages.where((m) => m.id != assistantMessageId).toList(),
         config: effectiveConfig,
@@ -183,10 +231,14 @@ class ChatController extends Notifier<ChatState> {
       if (_cancelToken?.isCancelled ?? false) {
         _finalizeMessage(assistantMessageId, MessageStatus.completed);
       } else {
+        String errStr = e.toString().replaceFirst('Exception: ', '');
+        if (errStr.contains('Connection refused') || errStr.contains('errno = 61')) {
+          errStr = '网络连接未响应：无法连接到目标服务 (${effectiveConfig.baseUrl})。若在手机端使用本地端侧模型，请确保手机与电脑在同一 Wi-Fi 并填入电脑局域网 IP (如 http://192.168.99.160:58588/v1)；或在右上角设置中填入云端 API Key。';
+        }
         _finalizeMessage(
           assistantMessageId,
           MessageStatus.error,
-          errorMessage: e.toString().replaceFirst('Exception: ', ''),
+          errorMessage: errStr,
         );
       }
     } finally {
