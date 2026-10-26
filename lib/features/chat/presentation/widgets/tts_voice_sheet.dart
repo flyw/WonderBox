@@ -202,16 +202,63 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
                       style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                     ),
                     const Spacer(),
-                    Text(
-                      '共 ${voices.length} 个音色',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.onSurfaceVariant,
+                    TextButton.icon(
+                      icon: const Icon(Icons.refresh, size: 14),
+                      label: const Text('刷新检测', style: TextStyle(fontSize: 11)),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
                       ),
+                      onPressed: () {
+                        notifier.loadAvailableVoices();
+                      },
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
+
+                if (!voices.any((v) =>
+                    ((v['name'] as String? ?? '').toLowerCase().contains('siri') ||
+                        (v['identifier'] as String? ?? '').toLowerCase().contains('siri')) &&
+                    ((v['quality'] as int? ?? 1) >= 2)))
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.info_outline,
+                                color: Colors.amber.shade800, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              '尚未下载 Siri 高保真音色包',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.amber.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '系统目前只有初始标准机械音。请打开 iPhone「设置」→「辅助功能」→「朗读内容」→「声音」→「中文」→ 下载「Siri 声音 2 (女声)」或「婷婷 (增强版)」，下载完成后返回点击上方「刷新检测」，即可体验真人般流畅的 Siri 女声！',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.amber.shade900,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
 
                 if (voices.isEmpty)
                   Container(

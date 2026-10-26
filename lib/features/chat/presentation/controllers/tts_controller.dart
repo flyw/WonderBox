@@ -66,28 +66,64 @@ class TtsNotifier extends Notifier<TtsState> {
 
   Future<void> loadAvailableVoices() async {
     final voices = await _service.getAvailableVoices();
+
+    bool isFemale(Map<String, dynamic> v) {
+      final name = (v['name'] as String? ?? '').toLowerCase();
+      final id = (v['identifier'] as String? ?? '').toLowerCase();
+      final gender = v['gender'] as int? ?? 0;
+      return gender == 2 ||
+          id.contains('female') ||
+          id.contains('ting-ting') ||
+          id.contains('tingting') ||
+          id.contains('yushu') ||
+          id.contains('yu-shu') ||
+          id.contains('meijia') ||
+          id.contains('mei-jia') ||
+          id.contains('sinji') ||
+          id.contains('sin-ji') ||
+          name.contains('女') ||
+          name.contains('声音 2') ||
+          name.contains('voice 2');
+    }
+
+    bool isSiri(Map<String, dynamic> v) {
+      final name = (v['name'] as String? ?? '').toLowerCase();
+      final id = (v['identifier'] as String? ?? '').toLowerCase();
+      return name.contains('siri') || id.contains('siri');
+    }
+
+    int getQuality(Map<String, dynamic> v) {
+      return v['quality'] as int? ?? 1;
+    }
+
+    // Sort voices: Siri female first, high-fidelity first, other females, etc.
+    voices.sort((a, b) {
+      final aIsSiriFemale = isSiri(a) && isFemale(a);
+      final bIsSiriFemale = isSiri(b) && isFemale(b);
+      if (aIsSiriFemale != bIsSiriFemale) return aIsSiriFemale ? -1 : 1;
+
+      final aIsSiri = isSiri(a);
+      final bIsSiri = isSiri(b);
+      if (aIsSiri != bIsSiri) return aIsSiri ? -1 : 1;
+
+      final aQual = getQuality(a);
+      final bQual = getQuality(b);
+      if (aQual != bQual) return bQual.compareTo(aQual);
+
+      final aIsFemale = isFemale(a);
+      final bIsFemale = isFemale(b);
+      if (aIsFemale != bIsFemale) return aIsFemale ? -1 : 1;
+
+      return (a['name'] as String? ?? '').compareTo(b['name'] as String? ?? '');
+    });
+
     String? targetId = state.selectedVoiceId;
     String? targetName = state.selectedVoiceName;
 
     if (targetId == null && voices.isNotEmpty) {
-      // Find Siri high-fidelity or premium voice first
-      final siriVoice = voices.firstWhere(
-        (v) =>
-            ((v['name'] as String? ?? '').toLowerCase().contains('siri') ||
-                (v['identifier'] as String? ?? '').toLowerCase().contains('siri')) &&
-            ((v['quality'] as int? ?? 0) >= 2),
-        orElse: () => voices.firstWhere(
-          (v) =>
-              (v['name'] as String? ?? '').toLowerCase().contains('siri') ||
-              (v['identifier'] as String? ?? '').toLowerCase().contains('siri'),
-          orElse: () => voices.firstWhere(
-            (v) => (v['quality'] as int? ?? 0) >= 2,
-            orElse: () => voices.first,
-          ),
-        ),
-      );
-      targetId = siriVoice['identifier'] as String?;
-      targetName = siriVoice['name'] as String?;
+      final best = voices.first;
+      targetId = best['identifier'] as String?;
+      targetName = best['name'] as String?;
     }
 
     state = state.copyWith(

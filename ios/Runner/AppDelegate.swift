@@ -561,54 +561,101 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
       return isPremiumQuality(v) || isEnhancedQuality(v)
     }
 
+    func isFemaleVoice(_ v: AVSpeechSynthesisVoice) -> Bool {
+      let id = v.identifier.lowercased()
+      let name = v.name.lowercased()
+      return v.gender == .female ||
+             id.contains("female") ||
+             id.contains("ting-ting") ||
+             id.contains("tingting") ||
+             id.contains("yushu") ||
+             id.contains("yu-shu") ||
+             id.contains("meijia") ||
+             id.contains("mei-jia") ||
+             id.contains("sinji") ||
+             id.contains("sin-ji") ||
+             name.contains("女") ||
+             name.contains("婷婷") ||
+             name.contains("雨舒") ||
+             name.contains("美佳") ||
+             name.contains("善芝") ||
+             name.contains("声音 2") ||
+             name.contains("voice 2")
+    }
+
+    func isSiriVoice(_ v: AVSpeechSynthesisVoice) -> Bool {
+      return v.name.localizedCaseInsensitiveContains("siri") ||
+             v.identifier.localizedCaseInsensitiveContains("siri")
+    }
+
     // 2. Filter Chinese voices
     let zhVoices = allVoices.filter { $0.language.lowercased().hasPrefix("zh") }
     for v in zhVoices {
-      print("[NativeTTS] Available voice: name=\(v.name), id=\(v.identifier), quality=\(v.quality.rawValue), lang=\(v.language)")
+      print("[NativeTTS] Available voice: name=\(v.name), id=\(v.identifier), quality=\(v.quality.rawValue), gender=\(v.gender.rawValue), lang=\(v.language)")
     }
 
-    // 3. Prioritize Siri High-Fidelity (.premium / .enhanced)
-    if let siriHigh = zhVoices.first(where: {
-      ($0.name.localizedCaseInsensitiveContains("siri") || $0.identifier.localizedCaseInsensitiveContains("siri")) &&
-      isHighFidelity($0)
+    // Write dump to documents captures for diagnostic verification
+    if let docDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+      let dumpDir = docDir.appendingPathComponent("captures")
+      try? FileManager.default.createDirectory(at: dumpDir, withIntermediateDirectories: true, attributes: nil)
+      let dumpPath = dumpDir.appendingPathComponent("installed_voices.txt")
+      let lines = zhVoices.map { "Name: \($0.name) | ID: \($0.identifier) | Quality: \($0.quality.rawValue) | Gender: \($0.gender.rawValue) | Lang: \($0.language)" }.joined(separator: "\n")
+      try? lines.write(to: dumpPath, atomically: true, encoding: .utf8)
+    }
+
+    // Priority 1: Siri Female High-Fidelity (.premium / .enhanced)
+    if let v = zhVoices.first(where: { isSiriVoice($0) && isFemaleVoice($0) && isHighFidelity($0) }) {
+      print("[NativeTTS] Priority 1 - Selected Siri Female High-Fidelity: \(v.name) (\(v.identifier))")
+      return v
+    }
+
+    // Priority 2: Siri Female (any quality)
+    if let v = zhVoices.first(where: { isSiriVoice($0) && isFemaleVoice($0) }) {
+      print("[NativeTTS] Priority 2 - Selected Siri Female: \(v.name) (\(v.identifier))")
+      return v
+    }
+
+    // Priority 3: Any Siri High-Fidelity
+    if let v = zhVoices.first(where: { isSiriVoice($0) && isHighFidelity($0) }) {
+      print("[NativeTTS] Priority 3 - Selected Siri High-Fidelity: \(v.name) (\(v.identifier))")
+      return v
+    }
+
+    // Priority 4: Any Siri
+    if let v = zhVoices.first(where: { isSiriVoice($0) }) {
+      print("[NativeTTS] Priority 4 - Selected Siri: \(v.name) (\(v.identifier))")
+      return v
+    }
+
+    // Priority 5: Female zh-CN Premium (e.g. Tingting / Yushu Premium)
+    if let v = zhVoices.first(where: { isFemaleVoice($0) && isPremiumQuality($0) && $0.language.lowercased().contains("cn") }) {
+      print("[NativeTTS] Priority 5 - Selected Premium Female zh-CN: \(v.name) (\(v.identifier))")
+      return v
+    }
+
+    // Priority 6: Female zh-CN Enhanced (e.g. Tingting / Yushu Enhanced)
+    if let v = zhVoices.first(where: { isFemaleVoice($0) && isEnhancedQuality($0) && $0.language.lowercased().contains("cn") }) {
+      print("[NativeTTS] Priority 6 - Selected Enhanced Female zh-CN: \(v.name) (\(v.identifier))")
+      return v
+    }
+
+    // Priority 7: Natural soft female voices (Yu-shu, Mei-Jia)
+    if let v = zhVoices.first(where: {
+      isFemaleVoice($0) && ($0.identifier.localizedCaseInsensitiveContains("yushu") || $0.identifier.localizedCaseInsensitiveContains("yu-shu") || $0.identifier.localizedCaseInsensitiveContains("meijia") || $0.identifier.localizedCaseInsensitiveContains("mei-jia"))
     }) {
-      print("[NativeTTS] Auto-selected Siri High-Fidelity: \(siriHigh.name) (\(siriHigh.identifier))")
-      return siriHigh
+      print("[NativeTTS] Priority 7 - Selected Natural Soft Female: \(v.name) (\(v.identifier))")
+      return v
     }
 
-    // 4. Prioritize any Siri voice
-    if let anySiri = zhVoices.first(where: {
-      $0.name.localizedCaseInsensitiveContains("siri") || $0.identifier.localizedCaseInsensitiveContains("siri")
-    }) {
-      print("[NativeTTS] Auto-selected Siri: \(anySiri.name) (\(anySiri.identifier))")
-      return anySiri
+    // Priority 8: Any Female zh voice
+    if let v = zhVoices.first(where: { isFemaleVoice($0) }) {
+      print("[NativeTTS] Priority 8 - Selected Female fallback: \(v.name) (\(v.identifier))")
+      return v
     }
 
-    // 5. Prioritize Premium zh-CN (e.g. Tingting Premium)
-    if let premiumZh = zhVoices.first(where: { isPremiumQuality($0) && $0.language.lowercased().contains("cn") }) {
-      print("[NativeTTS] Auto-selected Premium zh-CN: \(premiumZh.name) (\(premiumZh.identifier))")
-      return premiumZh
-    }
-
-    // 6. Prioritize Enhanced zh-CN (e.g. Tingting Enhanced)
-    if let enhancedZh = zhVoices.first(where: { isEnhancedQuality($0) && $0.language.lowercased().contains("cn") }) {
-      print("[NativeTTS] Auto-selected Enhanced zh-CN: \(enhancedZh.name) (\(enhancedZh.identifier))")
-      return enhancedZh
-    }
-
-    // 7. Any Premium / Enhanced voice
-    if let anyPremium = zhVoices.first(where: { isPremiumQuality($0) }) {
-      print("[NativeTTS] Auto-selected Premium: \(anyPremium.name) (\(anyPremium.identifier))")
-      return anyPremium
-    }
-    if let anyEnhanced = zhVoices.first(where: { isEnhancedQuality($0) }) {
-      print("[NativeTTS] Auto-selected Enhanced: \(anyEnhanced.name) (\(anyEnhanced.identifier))")
-      return anyEnhanced
-    }
-
-    // 8. Fallback
+    // 9. Fallback
     let fallback = AVSpeechSynthesisVoice(language: language) ?? AVSpeechSynthesisVoice(language: "zh-CN")
-    print("[NativeTTS] Fallback voice: \(fallback?.name ?? "default")")
+    print("[NativeTTS] Final Fallback voice: \(fallback?.name ?? "default")")
     return fallback
   }
 
