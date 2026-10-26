@@ -21,6 +21,7 @@ class ChatInputBox extends StatefulWidget {
 class _ChatInputBoxState extends State<ChatInputBox> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  final FocusNode _keyboardFocusNode = FocusNode();
   String _prefixText = '';
 
   void _handleSend() {
@@ -37,6 +38,7 @@ class _ChatInputBoxState extends State<ChatInputBox> {
   void dispose() {
     _controller.dispose();
     _focusNode.dispose();
+    _keyboardFocusNode.dispose();
     super.dispose();
   }
 
@@ -92,7 +94,7 @@ class _ChatInputBoxState extends State<ChatInputBox> {
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: KeyboardListener(
-                  focusNode: FocusNode(),
+                  focusNode: _keyboardFocusNode,
                   onKeyEvent: (event) {
                     if (event is KeyDownEvent &&
                         event.logicalKey == LogicalKeyboardKey.enter &&

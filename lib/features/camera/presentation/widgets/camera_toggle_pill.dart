@@ -9,11 +9,41 @@ class CameraTogglePill extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final cameraState = ref.watch(cameraControllerProvider);
     final theme = Theme.of(context);
+    final currentMode = cameraState.mode;
     final isEnabled = cameraState.isCameraEnabled;
+
+    final IconData iconData;
+    final String labelText;
+    switch (currentMode) {
+      case AppCameraMode.off:
+        iconData = Icons.videocam_off;
+        labelText = '镜头已关';
+        break;
+      case AppCameraMode.front:
+        iconData = Icons.camera_front;
+        labelText = '前置镜头';
+        break;
+      case AppCameraMode.backUltraWide:
+        iconData = Icons.zoom_out_map;
+        labelText = '后置广角';
+        break;
+    }
 
     return InkWell(
       onTap: () {
-        ref.read(cameraControllerProvider.notifier).toggleCameraEnabled();
+        // Cycle mode: backUltraWide -> front -> off -> backUltraWide
+        final notifier = ref.read(cameraControllerProvider.notifier);
+        switch (currentMode) {
+          case AppCameraMode.backUltraWide:
+            notifier.setCameraMode(AppCameraMode.front);
+            break;
+          case AppCameraMode.front:
+            notifier.setCameraMode(AppCameraMode.off);
+            break;
+          case AppCameraMode.off:
+            notifier.setCameraMode(AppCameraMode.backUltraWide);
+            break;
+        }
       },
       borderRadius: BorderRadius.circular(20),
       child: AnimatedContainer(
@@ -35,7 +65,7 @@ class CameraTogglePill extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              isEnabled ? Icons.videocam : Icons.videocam_off,
+              iconData,
               size: 15,
               color: isEnabled
                   ? theme.colorScheme.secondary
@@ -43,7 +73,7 @@ class CameraTogglePill extends ConsumerWidget {
             ),
             const SizedBox(width: 5),
             Text(
-              isEnabled ? '视界已开' : '视界静音',
+              labelText,
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,

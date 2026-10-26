@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../camera/presentation/controllers/camera_controller.dart';
+import '../../../camera/presentation/widgets/camera_config_bar.dart';
 import '../../../camera/presentation/widgets/camera_preview_floating.dart';
 import '../../../camera/presentation/widgets/camera_toggle_pill.dart';
 import '../controllers/ambient_assistant_controller.dart';
@@ -230,6 +231,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                         },
                       ),
               ),
+              const CameraConfigBar(),
               ChatInputBox(
                 isStreaming: chatState.isStreaming,
                 onSend: (text) {

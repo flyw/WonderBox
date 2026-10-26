@@ -2,7 +2,10 @@ import 'package:camera/camera.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/services/camera_service.dart';
 
+export '../../data/services/camera_service.dart' show AppCameraMode;
+
 class CameraState {
+  final AppCameraMode mode;
   final bool isCameraEnabled;
   final bool isInitialized;
   final bool isPreviewVisible;
@@ -12,6 +15,7 @@ class CameraState {
   final String? errorMessage;
 
   const CameraState({
+    this.mode = AppCameraMode.backUltraWide,
     this.isCameraEnabled = true,
     this.isInitialized = false,
     this.isPreviewVisible = false,
@@ -22,6 +26,7 @@ class CameraState {
   });
 
   CameraState copyWith({
+    AppCameraMode? mode,
     bool? isCameraEnabled,
     bool? isInitialized,
     bool? isPreviewVisible,
@@ -31,6 +36,7 @@ class CameraState {
     String? errorMessage,
   }) {
     return CameraState(
+      mode: mode ?? this.mode,
       isCameraEnabled: isCameraEnabled ?? this.isCameraEnabled,
       isInitialized: isInitialized ?? this.isInitialized,
       isPreviewVisible: isPreviewVisible ?? this.isPreviewVisible,
@@ -47,19 +53,24 @@ class CameraNotifier extends Notifier<CameraState> {
   CameraState build() {
     final service = ref.read(cameraServiceProvider);
     return CameraState(
+      mode: service.currentMode,
       isCameraEnabled: service.isEnabled,
       isInitialized: service.isInitialized,
+      currentCamera: service.currentMobileCamera,
     );
   }
 
-  Future<void> initialize() async {
+  Future<void> initialize([AppCameraMode defaultMode = AppCameraMode.backUltraWide]) async {
     final service = ref.read(cameraServiceProvider);
-    state = state.copyWith(statusMessage: '正在启动摄像头...');
-    final success = await service.initializeCamera();
+    state = state.copyWith(statusMessage: _getSwitchingStatusForMode(defaultMode));
+    final success = await service.setCameraMode(defaultMode);
     if (success) {
       state = state.copyWith(
-        isInitialized: true,
-        statusMessage: '摄像头就绪 (Jev判决时自动抓拍)',
+        mode: defaultMode,
+        isCameraEnabled: defaultMode != AppCameraMode.off,
+        isInitialized: defaultMode != AppCameraMode.off,
+        currentCamera: service.currentMobileCamera,
+        statusMessage: _getStatusForMode(defaultMode),
         errorMessage: null,
       );
     } else {
@@ -70,14 +81,41 @@ class CameraNotifier extends Notifier<CameraState> {
     }
   }
 
-  void toggleCameraEnabled() {
+  Future<void> setCameraMode(AppCameraMode newMode) async {
+    if (state.mode == newMode && (newMode == AppCameraMode.off || state.isInitialized)) {
+      return;
+    }
+
     final service = ref.read(cameraServiceProvider);
-    final next = !state.isCameraEnabled;
-    service.setEnabled(next);
     state = state.copyWith(
-      isCameraEnabled: next,
-      statusMessage: next ? '摄像头伴听已启用' : '摄像头已静音(仅录音)',
+      mode: newMode,
+      statusMessage: _getSwitchingStatusForMode(newMode),
     );
+
+    final success = await service.setCameraMode(newMode);
+    if (success) {
+      state = state.copyWith(
+        mode: newMode,
+        isCameraEnabled: newMode != AppCameraMode.off,
+        isInitialized: newMode != AppCameraMode.off,
+        currentCamera: service.currentMobileCamera,
+        statusMessage: _getStatusForMode(newMode),
+        errorMessage: null,
+      );
+    } else {
+      state = state.copyWith(
+        statusMessage: '摄像头切换失败',
+        errorMessage: '无法切换到所选模式',
+      );
+    }
+  }
+
+  void toggleCameraEnabled() {
+    if (state.mode == AppCameraMode.off) {
+      setCameraMode(AppCameraMode.backUltraWide);
+    } else {
+      setCameraMode(AppCameraMode.off);
+    }
   }
 
   void togglePreviewVisible() {
@@ -85,6 +123,10 @@ class CameraNotifier extends Notifier<CameraState> {
   }
 
   Future<String?> captureFrame() async {
+    if (state.mode == AppCameraMode.off || !state.isCameraEnabled) {
+      return null;
+    }
+
     final service = ref.read(cameraServiceProvider);
     state = state.copyWith(statusMessage: '📸 正在读取画面...');
     final path = await service.captureFrame();
@@ -99,6 +141,28 @@ class CameraNotifier extends Notifier<CameraState> {
       );
     }
     return path;
+  }
+
+  String _getStatusForMode(AppCameraMode mode) {
+    switch (mode) {
+      case AppCameraMode.off:
+        return '摄像头已关闭 (仅录音伴听)';
+      case AppCameraMode.front:
+        return '前置摄像头就绪';
+      case AppCameraMode.backUltraWide:
+        return '后置超广角摄像头就绪 (0.5x 全景)';
+    }
+  }
+
+  String _getSwitchingStatusForMode(AppCameraMode mode) {
+    switch (mode) {
+      case AppCameraMode.off:
+        return '正在关闭摄像头...';
+      case AppCameraMode.front:
+        return '正在切换至前置摄像头...';
+      case AppCameraMode.backUltraWide:
+        return '正在切换至后置超广角摄像头...';
+    }
   }
 }
 

@@ -13,6 +13,12 @@ final cameraServiceProvider = Provider<CameraService>((ref) {
   return service;
 });
 
+enum AppCameraMode {
+  off,
+  front,
+  backUltraWide,
+}
+
 class CameraDeviceDescription {
   final String id;
   final String name;
@@ -33,6 +39,8 @@ class CameraService {
   List<CameraDescription> _mobileCameras = [];
   List<CameraDeviceDescription> _macCameras = [];
   CameraDeviceDescription? _activeMacCamera;
+  CameraDescription? _currentMobileCamera;
+  AppCameraMode _currentMode = AppCameraMode.backUltraWide;
   bool _isMacInitialized = false;
   bool _isInitializing = false;
   bool _isEnabled = true; // Auto-capture when Jev decides YES
@@ -41,8 +49,10 @@ class CameraService {
   bool get isInitialized => Platform.isMacOS
       ? _isMacInitialized
       : (_mobileController != null && _mobileController!.value.isInitialized);
-  bool get isEnabled => _isEnabled;
+  bool get isEnabled => _isEnabled && _currentMode != AppCameraMode.off;
+  AppCameraMode get currentMode => _currentMode;
   List<CameraDescription> get mobileCameras => _mobileCameras;
+  CameraDescription? get currentMobileCamera => _currentMobileCamera;
   List<CameraDeviceDescription> get macCameras => _macCameras;
   CameraDeviceDescription? get activeMacCamera => _activeMacCamera;
 
@@ -50,32 +60,48 @@ class CameraService {
     _isEnabled = enabled;
   }
 
-  /// Initializes the camera (native AVFoundation on macOS, camera plugin on mobile)
+  /// Initializes the camera with the currently configured mode
   Future<bool> initializeCamera([dynamic preferredCamera]) async {
-    if (isInitialized) return true;
-    if (_isInitializing) return false;
+    return await setCameraMode(_currentMode);
+  }
 
+  /// Sets camera mode: off, front, or backUltraWide
+  Future<bool> setCameraMode(AppCameraMode mode) async {
+    _currentMode = mode;
+    if (mode == AppCameraMode.off) {
+      _isEnabled = false;
+      await disposeCamera();
+      debugPrint('[CameraService] Camera switched to OFF mode');
+      return true;
+    }
+
+    _isEnabled = true;
+    if (_isInitializing) return false;
     _isInitializing = true;
+
     try {
       if (Platform.isMacOS) {
-        return await _initializeMacOS(preferredCamera as String?);
+        final ok = await _switchModeMacOS(mode);
+        _isInitializing = false;
+        return ok;
       } else {
-        return await _initializeMobile(preferredCamera as CameraDescription?);
+        final ok = await _switchModeMobile(mode);
+        _isInitializing = false;
+        return ok;
       }
     } catch (e) {
-      debugPrint('[CameraService] Camera initialization error: $e');
+      debugPrint('[CameraService] Error switching camera mode: $e');
       _isInitializing = false;
       return false;
     }
   }
 
-  Future<bool> _initializeMacOS([String? targetCameraId]) async {
+  Future<bool> _switchModeMacOS(AppCameraMode mode) async {
     try {
       final granted =
           await _macChannel.invokeMethod<bool>('requestPermission') ?? false;
       if (!granted) {
         debugPrint('[CameraService] macOS camera permission denied');
-        _isInitializing = false;
         return false;
       }
 
@@ -92,19 +118,21 @@ class CameraService {
 
       if (_macCameras.isEmpty) {
         debugPrint('[CameraService] No video capture devices found on macOS');
-        _isInitializing = false;
         return false;
       }
 
-      _activeMacCamera = targetCameraId != null
-          ? _macCameras.firstWhere(
-              (c) => c.id == targetCameraId,
-              orElse: () => _macCameras.first,
-            )
-          : _macCameras.firstWhere(
-              (c) => c.isFront,
-              orElse: () => _macCameras.first,
-            );
+      if (mode == AppCameraMode.front) {
+        _activeMacCamera = _macCameras.firstWhere(
+          (c) => c.isFront,
+          orElse: () => _macCameras.first,
+        );
+      } else {
+        // Prefer external or back camera if available
+        _activeMacCamera = _macCameras.firstWhere(
+          (c) => !c.isFront,
+          orElse: () => _macCameras.first,
+        );
+      }
 
       final ok = await _macChannel.invokeMethod<bool>('initializeCamera', {
             'cameraId': _activeMacCamera?.id,
@@ -112,60 +140,116 @@ class CameraService {
           false;
 
       _isMacInitialized = ok;
-      _isInitializing = false;
       debugPrint(
           '[CameraService] macOS Native AVFoundation camera ready: ${_activeMacCamera?.name}');
       return ok;
     } catch (e) {
       debugPrint('[CameraService] macOS camera setup error: $e');
       _isMacInitialized = false;
-      _isInitializing = false;
       return false;
     }
   }
 
-  Future<bool> _initializeMobile([CameraDescription? preferredCamera]) async {
+  Future<bool> _switchModeMobile(AppCameraMode mode) async {
     try {
-      _mobileCameras = await availableCameras();
+      if (_mobileCameras.isEmpty) {
+        _mobileCameras = await availableCameras();
+      }
       if (_mobileCameras.isEmpty) {
         debugPrint('[CameraService] No cameras found on mobile device');
-        _isInitializing = false;
         return false;
       }
 
-      final camera = preferredCamera ??
-          _mobileCameras.firstWhere(
-            (c) => c.lensDirection == CameraLensDirection.front,
-            orElse: () => _mobileCameras.first,
-          );
+      CameraDescription targetCamera;
+      if (mode == AppCameraMode.front) {
+        targetCamera = _mobileCameras.firstWhere(
+          (c) => c.lensDirection == CameraLensDirection.front,
+          orElse: () => _mobileCameras.first,
+        );
+      } else {
+        // Back ultra-wide mode:
+        // Priority 1: back camera with ultraWide lens type
+        CameraDescription? ultraWide;
+        for (final c in _mobileCameras) {
+          if (c.lensDirection == CameraLensDirection.back &&
+              c.lensType == CameraLensType.ultraWide) {
+            ultraWide = c;
+            break;
+          }
+        }
+        // Priority 2: back camera with 'ultra' or '0.5' in name/identifier
+        if (ultraWide == null) {
+          for (final c in _mobileCameras) {
+            if (c.lensDirection == CameraLensDirection.back &&
+                (c.name.toLowerCase().contains('ultra') ||
+                    c.name.toLowerCase().contains('0.5'))) {
+              ultraWide = c;
+              break;
+            }
+          }
+        }
+        // Priority 3: any back camera
+        ultraWide ??= _mobileCameras.firstWhere(
+          (c) => c.lensDirection == CameraLensDirection.back,
+          orElse: () => _mobileCameras.first,
+        );
+        targetCamera = ultraWide;
+      }
 
+      // Dispose existing controller before creating new one
+      if (_mobileController != null) {
+        await _mobileController!.dispose();
+        _mobileController = null;
+      }
+
+      _currentMobileCamera = targetCamera;
       _mobileController = CameraController(
-        camera,
+        targetCamera,
         ResolutionPreset.medium,
         enableAudio: false,
       );
 
       await _mobileController!.initialize();
-      debugPrint('[CameraService] Mobile Camera initialized: ${camera.name}');
-      _isInitializing = false;
+      debugPrint(
+          '[CameraService] Mobile Camera initialized: ${targetCamera.name} (lens: ${targetCamera.lensDirection}, type: ${targetCamera.lensType})');
+
+      // Crucial: Set flash mode to OFF immediately to prevent screen whitening or flash
+      try {
+        await _mobileController!.setFlashMode(FlashMode.off);
+        debugPrint('[CameraService] Flash mode disabled (FlashMode.off)');
+      } catch (e) {
+        debugPrint('[CameraService] setFlashMode(FlashMode.off) notice: $e');
+      }
+
+      // If back ultra-wide mode, set zoom level to minimum (maximum wide angle)
+      if (mode == AppCameraMode.backUltraWide) {
+        try {
+          final minZoom = await _mobileController!.getMinZoomLevel();
+          await _mobileController!.setZoomLevel(minZoom);
+          debugPrint(
+              '[CameraService] Back ultra-wide zoom level set to min: $minZoom');
+        } catch (e) {
+          debugPrint('[CameraService] setZoomLevel error (notice): $e');
+        }
+      }
+
       return true;
     } catch (e) {
-      debugPrint('[CameraService] Mobile Camera init failed: $e');
+      debugPrint('[CameraService] Mobile Camera switch failed: $e');
       _mobileController = null;
-      _isInitializing = false;
       return false;
     }
   }
 
   /// Captures a single image frame and saves it to app documents captures directory
   Future<String?> captureFrame() async {
-    if (!_isEnabled) {
-      debugPrint('[CameraService] Camera capture is disabled by user');
+    if (!_isEnabled || _currentMode == AppCameraMode.off) {
+      debugPrint('[CameraService] Camera capture is skipped (camera is OFF)');
       return null;
     }
 
     if (!isInitialized) {
-      final success = await initializeCamera();
+      final success = await setCameraMode(_currentMode);
       if (!success) {
         debugPrint('[CameraService] Camera not available for capture');
         return null;
@@ -197,6 +281,11 @@ class CameraService {
         return null;
       }
       try {
+        // Ensure flash remains off before taking picture
+        try {
+          await _mobileController!.setFlashMode(FlashMode.off);
+        } catch (_) {}
+
         final XFile picture = await _mobileController!.takePicture();
         await File(picture.path).copy(savedPath);
         debugPrint('[CameraService] Mobile Frame snapshot saved to: $savedPath');

@@ -164,6 +164,7 @@ class CameraPreviewFloating extends ConsumerWidget {
           width: 140,
           height: 105,
           decoration: BoxDecoration(
+            color: Colors.black,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: Colors.green.withValues(alpha: 0.8),

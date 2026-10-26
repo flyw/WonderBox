@@ -47,20 +47,20 @@ class TtsService {
     cleaned = cleaned.replaceAll(RegExp(r'`[^`]*`'), '');
 
     // Remove Markdown headers (#, ##, etc.)
-    cleaned = cleaned.replaceAll(RegExp(r'(?m)^#{1,6}\s*'), '');
+    cleaned = cleaned.replaceAll(RegExp(r'^#{1,6}\s*', multiLine: true), '');
 
     // Remove bold and italic markers (*, **, ***, _)
     cleaned = cleaned.replaceAll(RegExp(r'[*_]{1,3}'), '');
 
     // Remove blockquote markers (> )
-    cleaned = cleaned.replaceAll(RegExp(r'(?m)^>\s*'), '');
+    cleaned = cleaned.replaceAll(RegExp(r'^>\s*', multiLine: true), '');
 
     // Remove Markdown links [label](url) -> label
     cleaned = cleaned.replaceAllMapped(RegExp(r'\[([^\]]+)\]\([^\)]+\)'), (m) => m[1] ?? '');
 
     // Replace list bullets with a natural pause comma
-    cleaned = cleaned.replaceAll(RegExp(r'(?m)^[-*+]\s+'), '，');
-    cleaned = cleaned.replaceAll(RegExp(r'(?m)^\d+\.\s+'), '，');
+    cleaned = cleaned.replaceAll(RegExp(r'^[-*+]\s+', multiLine: true), '，');
+    cleaned = cleaned.replaceAll(RegExp(r'^\d+\.\s+', multiLine: true), '，');
 
     // Replace multiple newlines with full stop
     cleaned = cleaned.replaceAll(RegExp(r'\n+'), '。');
