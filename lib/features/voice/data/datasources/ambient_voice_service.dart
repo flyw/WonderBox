@@ -64,10 +64,11 @@ class AmbientVoiceService {
       final vadConfig = sherpa_onnx.VadModelConfig(
         tenVad: sherpa_onnx.TenVadModelConfig(
           model: vadModelPath,
-          threshold: 0.35,
-          minSilenceDuration: 0.8,
-          minSpeechDuration: 0.15,
+          threshold: 0.25,
+          minSilenceDuration: 1.0,
+          minSpeechDuration: 0.10,
           windowSize: 256,
+          maxSpeechDuration: 30.0,
         ),
         sampleRate: 16000,
         debug: false,
@@ -98,10 +99,23 @@ class AmbientVoiceService {
       var residualSamples = Float32List(0);
       const windowSize = 256;
 
+      // Rolling pre-speech buffer (~500ms) to ensure speech onset is never lost
+      final preSpeechBuffer = <Uint8List>[];
+      const maxPreSpeechChunks = 5;
+      var silenceFramesAfterSpeech = 0;
+
       _recordStreamSub?.cancel();
       _recordStreamSub = recordStream.listen(
         (Uint8List chunk) {
           if (_vad == null || !_isListening) return;
+
+          // Buffer incoming chunks before speech onset so leading syllables are preserved
+          if (_activeStream == null) {
+            preSpeechBuffer.add(chunk);
+            if (preSpeechBuffer.length > maxPreSpeechChunks) {
+              preSpeechBuffer.removeAt(0);
+            }
+          }
 
           final newSamples = _pcm16ToFloat32(chunk);
           final totalLength = residualSamples.length + newSamples.length;
@@ -127,20 +141,43 @@ class AmbientVoiceService {
             _lastDetectedState = detected;
             onSpeechDetectedChanged?.call(detected);
 
-            if (detected) {
-              // Speech started, create fresh streaming recognizer session
-              _activeStream?.free();
+            if (detected && _activeStream == null) {
+              // Speech started: initialize stream and immediately feed all pre-speech chunks
               _activeStream = _paraformerService.createStream();
               _currentLiveText = '';
+              silenceFramesAfterSpeech = 0;
+
+              for (final preChunk in preSpeechBuffer) {
+                final preHypothesis = _paraformerService.processChunk(_activeStream!, preChunk);
+                if (preHypothesis.isNotEmpty) {
+                  _currentLiveText = preHypothesis;
+                  onLiveText?.call(_currentLiveText);
+                }
+              }
+              preSpeechBuffer.clear();
             }
           }
 
-          // If speaking, feed chunk ONCE to StreamingParaformer for live typewriter feedback
-          if (detected && _activeStream != null) {
+          // If active stream is recording speech, feed chunk for live typewriter feedback
+          if (_activeStream != null) {
+            if (detected) {
+              silenceFramesAfterSpeech = 0;
+            } else {
+              silenceFramesAfterSpeech++;
+            }
+
             final liveHypothesis = _paraformerService.processChunk(_activeStream!, chunk);
             if (liveHypothesis.isNotEmpty && liveHypothesis != _currentLiveText) {
               _currentLiveText = liveHypothesis;
               onLiveText?.call(_currentLiveText);
+            }
+
+            // Reset if silence persists for > 2.0s without a segment
+            if (silenceFramesAfterSpeech > 20) {
+              _activeStream?.free();
+              _activeStream = null;
+              _currentLiveText = '';
+              silenceFramesAfterSpeech = 0;
             }
           }
 
@@ -149,20 +186,24 @@ class AmbientVoiceService {
             _vad!.pop();
 
             String finalPhrase = '';
-            if (_activeStream != null) {
+            // Primary: transcribe the complete, pristine segment buffered by TEN VAD (onset to offset)
+            if (segment.samples.isNotEmpty) {
+              finalPhrase = _paraformerService.transcribeSamples(segment.samples).trim();
+            }
+
+            // Fallback: if segment transcription was empty, try finalizing active stream
+            if (finalPhrase.isEmpty && _activeStream != null) {
               finalPhrase = _paraformerService.finalizeStream(_activeStream!).trim();
-              _activeStream?.free();
-              _activeStream = null;
             }
 
-            if (finalPhrase.isEmpty && segment.samples.isNotEmpty) {
-              finalPhrase = _paraformerService.transcribeSamples(segment.samples);
-            }
-
+            _activeStream?.free();
+            _activeStream = null;
             _currentLiveText = '';
+            preSpeechBuffer.clear();
+            silenceFramesAfterSpeech = 0;
 
-            if (finalPhrase.trim().isNotEmpty) {
-              onPhraseTranscribed(finalPhrase.trim());
+            if (finalPhrase.isNotEmpty) {
+              onPhraseTranscribed(finalPhrase);
             }
           }
         },

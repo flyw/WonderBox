@@ -107,6 +107,12 @@ bool llama_bridge_generate(const char * prompt, int max_tokens, LlamaTokenCallba
 
     s_stop_flag.store(false);
 
+    // Clear KV cache and memory state before starting a new prompt sequence
+    llama_memory_t mem = llama_get_memory(s_ctx);
+    if (mem) {
+        llama_memory_clear(mem, true);
+    }
+
     std::string prompt_str(prompt);
     const int n_prompt = -llama_tokenize(s_vocab, prompt_str.c_str(), prompt_str.size(), NULL, 0, true, true);
     if (n_prompt <= 0) {
