@@ -162,14 +162,9 @@ class ChatController extends Notifier<ChatState> {
 
           if (isMobile) {
             accumulatedContent =
-                '⚠️ **未能连接到 MiniCPM-V-4.6 端侧推理服务**\n\n'
-                '由于手机操作系统沙盒机制，iOS 无法在 App 内直接运行外部 llama-server 进程。\n\n'
-                '**如何畅享伴听分析**：\n'
-                '1. **电脑端侧局域网联动**：\n'
-                '   • 在 Mac 终端运行：`llama-server -m MiniCPM-V-4_6-Q4_K_M.gguf --mmproj mmproj-model-f16.gguf --port 58588 --host 0.0.0.0`\n'
-                '   • 点击右上角 **⚙️ 设置**，将 Base URL 改为您的电脑 IP（例如 `http://192.168.99.160:58588/v1`）；\n'
-                '2. **配置云端模型**：\n'
-                '   • 点击右上角 **⚙️ 设置** 填入 DeepSeek 或 OpenAI API Key 即可全功能畅享多模态回复。';
+                '⚡️ **MiniCPM-V-4.6 端侧原生 Metal 引擎正在加载中**\n\n'
+                '由于正在将量化模型装载至 Apple Metal GPU 显存，初次启动需要数秒时间，请稍候 2~3 秒直接重试；\n\n'
+                '或点击右上角 **⚙️ 设置** 切换为云端 API。';
           } else {
             accumulatedContent =
                 '⚠️ **本地 MiniCPM-V-4.6 服务尚未就绪**\n\n'

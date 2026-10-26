@@ -297,11 +297,31 @@ import Network
     ]
 
     var mmprojPath: String? = nil
-    for mPath in mmprojCandidates {
-      if fileManager.fileExists(atPath: mPath) {
-        mmprojPath = mPath
-        break
+    let q4Path = docDir.appendingPathComponent("models/minicpm_v/mmproj-model-q4.gguf").path
+    let f16Path = docDir.appendingPathComponent("models/minicpm_v/mmproj-model-f16.gguf").path
+
+    func isValidModelFile(_ p: String) -> Bool {
+      guard fileManager.fileExists(atPath: p),
+            let attrs = try? fileManager.attributesOfItem(atPath: p),
+            let size = attrs[.size] as? UInt64,
+            size > 400_000_000 else {
+        return false
       }
+      return true
+    }
+
+    // Clean up corrupted incomplete download if present (< 400MB)
+    if fileManager.fileExists(atPath: q4Path) && !isValidModelFile(q4Path) {
+      try? fileManager.removeItem(atPath: q4Path)
+      print("[OnDeviceLlama] ⚠️ Removed corrupted/incomplete mmproj-model-q4.gguf")
+    }
+
+    if isValidModelFile(q4Path) {
+      mmprojPath = q4Path
+    } else if isValidModelFile(f16Path) {
+      mmprojPath = f16Path
+    } else if fileManager.fileExists(atPath: f16Path) {
+      mmprojPath = f16Path
     }
 
     if llama_bridge_is_loaded() {

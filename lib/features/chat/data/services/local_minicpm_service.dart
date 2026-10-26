@@ -31,11 +31,11 @@ class LocalMiniCpmService {
 
   LocalMiniCpmService(this._modelManager);
 
-  /// Checks if the local llama-server is alive and ready
+  /// Checks if the local inference server is alive and ready
   Future<bool> isServerRunning() async {
     try {
       final client = HttpClient()
-        ..connectionTimeout = const Duration(milliseconds: 500);
+        ..connectionTimeout = const Duration(milliseconds: 3000);
       final request = await client.getUrl(Uri.parse('http://127.0.0.1:$port/health'));
       final response = await request.close();
       final isOk = response.statusCode == 200;
