@@ -47,6 +47,7 @@ dependencies:
   record: ^7.1.2
   permission_handler: ^13.0.2
   camera: ^0.12.1
+  llama_cpp_dart: ^0.2.2
 
 dev_dependencies:
   flutter_test:
