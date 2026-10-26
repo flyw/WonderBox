@@ -58,7 +58,43 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
     ref.onDispose(() {
       service.stopListening();
     });
+
+    // Auto mute ambient listening while streaming response or speaking via TTS
+    ref.listen(chatControllerProvider.select((s) => s.isStreaming), (prev, isStreaming) {
+      _syncMuteState();
+    });
+
+    ref.listen(ttsControllerProvider.select((s) => s.isSpeaking), (prev, isSpeaking) {
+      _syncMuteState();
+    });
+
     return const AmbientAssistantState();
+  }
+
+  void _syncMuteState() {
+    final isStreaming = ref.read(chatControllerProvider).isStreaming;
+    final isSpeaking = ref.read(ttsControllerProvider).isSpeaking;
+    final shouldMute = isStreaming || isSpeaking;
+    final service = ref.read(ambientVoiceServiceProvider);
+
+    if (state.isListening) {
+      service.setMuted(shouldMute);
+      if (shouldMute) {
+        state = state.copyWith(
+          isSpeechActive: false,
+          liveText: '',
+          statusMessage: isSpeaking
+              ? '🔊 正在语音播报 (说完后继续伴听)'
+              : '🤖 MiniCPM-V 正在思考回答...',
+        );
+      } else {
+        state = state.copyWith(
+          isSpeechActive: false,
+          liveText: '',
+          statusMessage: 'TEN VAD 伴听就绪 (开口自动分析)',
+        );
+      }
+    }
   }
 
   Future<void> startAmbientListening() async {
@@ -75,16 +111,14 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
 
     final success = await service.startListening(
       onSpeechDetectedChanged: (isDetected) {
-        if (isDetected) {
-          // Interrupt active TTS reading immediately when speech is detected
-          ref.read(ttsControllerProvider.notifier).stop();
-        }
+        if (service.isMuted) return;
         state = state.copyWith(
           isSpeechActive: isDetected,
           statusMessage: isDetected ? '正在聆听发言...' : 'TEN VAD 伴听中 (静候短句)',
         );
       },
       onLiveText: (text) {
+        if (service.isMuted) return;
         state = state.copyWith(
           liveText: text,
           isSpeechActive: true,
@@ -92,6 +126,7 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
         );
       },
       onPhraseTranscribed: (phrase) {
+        if (service.isMuted) return;
         _handlePhraseTranscribed(phrase);
       },
       onError: (err) {
@@ -140,8 +175,9 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
 
   Future<void> _handlePhraseTranscribed(String phrase) async {
     final chatState = ref.read(chatControllerProvider);
-    if (chatState.isStreaming) {
-      debugPrint('[AmbientAssistant] Chat is actively streaming, skipping overlapping phrase: "$phrase"');
+    final ttsState = ref.read(ttsControllerProvider);
+    if (chatState.isStreaming || ttsState.isSpeaking) {
+      debugPrint('[AmbientAssistant] Assistant is actively streaming or speaking, skipping phrase: "$phrase"');
       return;
     }
 

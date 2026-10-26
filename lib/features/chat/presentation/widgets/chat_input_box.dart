@@ -4,12 +4,14 @@ import '../../../voice/presentation/widgets/voice_input_button.dart';
 
 class ChatInputBox extends StatefulWidget {
   final bool isStreaming;
+  final bool isSpeaking;
   final ValueChanged<String> onSend;
   final VoidCallback onStop;
 
   const ChatInputBox({
     super.key,
     required this.isStreaming,
+    this.isSpeaking = false,
     required this.onSend,
     required this.onStop,
   });
@@ -123,14 +125,14 @@ class _ChatInputBoxState extends State<ChatInputBox> {
               ),
             ),
             const SizedBox(width: 8),
-            if (widget.isStreaming)
+            if (widget.isStreaming || widget.isSpeaking)
               IconButton.filled(
                 icon: const Icon(Icons.stop_rounded),
                 style: IconButton.styleFrom(
                   backgroundColor: theme.colorScheme.error,
                   foregroundColor: theme.colorScheme.onError,
                 ),
-                tooltip: 'Stop generating',
+                tooltip: widget.isSpeaking ? '停止说话' : '停止生成',
                 onPressed: widget.onStop,
               )
             else

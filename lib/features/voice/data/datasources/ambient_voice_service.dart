@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:record/record.dart';
@@ -26,12 +25,32 @@ class AmbientVoiceService {
   sherpa_onnx.OnlineStream? _activeStream;
   StreamSubscription<Uint8List>? _recordStreamSub;
   bool _isListening = false;
+  bool _isMuted = false;
   bool _lastDetectedState = false;
   String _currentLiveText = '';
 
   AmbientVoiceService(this._vadManager, this._paraformerService);
 
   bool get isListening => _isListening;
+  bool get isMuted => _isMuted;
+
+  void setMuted(bool muted) {
+    if (_isMuted == muted) return;
+    _isMuted = muted;
+    if (muted) {
+      debugPrint('[AmbientVoiceService] Muted: assistant is active/speaking, dropping mic chunks');
+      _activeStream?.free();
+      _activeStream = null;
+      _currentLiveText = '';
+      _lastDetectedState = false;
+      _vad?.clear();
+      _vad?.reset();
+    } else {
+      debugPrint('[AmbientVoiceService] Unmuted: assistant stopped speaking, listening resumed');
+      _lastDetectedState = false;
+      _vad?.reset();
+    }
+  }
 
   Future<void> ensureInitialized() async {
     if (!await _vadManager.isModelDownloaded()) {
@@ -106,7 +125,7 @@ class AmbientVoiceService {
       _recordStreamSub?.cancel();
       _recordStreamSub = recordStream.listen(
         (Uint8List chunk) {
-          if (_vad == null || !_isListening) return;
+          if (_vad == null || !_isListening || _isMuted) return;
 
           // Buffer incoming chunks before speech onset so leading syllables are preserved
           if (_activeStream == null) {

@@ -7,7 +7,9 @@ import '../../../camera/presentation/widgets/camera_preview_floating.dart';
 import '../../../camera/presentation/widgets/camera_toggle_pill.dart';
 import '../controllers/ambient_assistant_controller.dart';
 import '../controllers/chat_controller.dart';
+import '../controllers/tts_controller.dart';
 import '../widgets/ambient_listening_pill.dart';
+import '../widgets/stop_speaking_button.dart';
 import '../widgets/tts_toggle_pill.dart';
 import '../widgets/chat_input_box.dart';
 import '../widgets/message_bubble.dart';
@@ -69,6 +71,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
   @override
   Widget build(BuildContext context) {
     final chatState = ref.watch(chatControllerProvider);
+    final ttsState = ref.watch(ttsControllerProvider);
     final theme = Theme.of(context);
 
     // Auto scroll when messages update
@@ -231,13 +234,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                         },
                       ),
               ),
+              const StopSpeakingButton(),
               const CameraConfigBar(),
               ChatInputBox(
                 isStreaming: chatState.isStreaming,
+                isSpeaking: ttsState.isSpeaking,
                 onSend: (text) {
                   ref.read(chatControllerProvider.notifier).sendMessage(text);
                 },
                 onStop: () {
+                  ref.read(ttsControllerProvider.notifier).stop();
                   ref.read(chatControllerProvider.notifier).stopStreaming();
                 },
               ),
