@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+import '../../../camera/presentation/controllers/camera_controller.dart';
 import '../../domain/models/chat_message.dart';
 import '../../domain/models/llm_config.dart';
 import '../../data/repositories/chat_repository_impl.dart';
@@ -72,11 +74,24 @@ class ChatController extends Notifier<ChatState> {
     final trimmed = text.trim();
     if ((trimmed.isEmpty && (imagePath == null || imagePath.isEmpty)) || state.isStreaming) return;
 
+    // Automatically capture live camera frame if no image was provided and camera is enabled
+    String? effectiveImagePath = imagePath;
+    if (effectiveImagePath == null || effectiveImagePath.isEmpty) {
+      final cameraState = ref.read(cameraControllerProvider);
+      if (cameraState.isCameraEnabled) {
+        try {
+          effectiveImagePath = await ref.read(cameraControllerProvider.notifier).captureFrame();
+        } catch (e) {
+          debugPrint('[ChatController] Auto camera frame capture error: $e');
+        }
+      }
+    }
+
     final userMessage = ChatMessage(
       id: _uuid.v4(),
       role: MessageRole.user,
       content: trimmed,
-      imagePath: imagePath,
+      imagePath: effectiveImagePath,
       createdAt: DateTime.now(),
     );
 
@@ -168,14 +183,12 @@ class ChatController extends Notifier<ChatState> {
           if (isMobile) {
             accumulatedContent =
                 '⚡️ **MiniCPM-V-4.6 端侧原生 Metal 引擎正在加载中**\n\n'
-                '由于正在将量化模型装载至 Apple Metal GPU 显存，初次启动需要数秒时间，请稍候 2~3 秒直接重试；\n\n'
-                '或点击右上角 **⚙️ 设置** 切换为云端 API。';
+                '由于正在将量化模型装载至 Apple Metal GPU 显存，初次启动需要数秒时间，请稍候 2~3 秒直接重试。';
           } else {
             accumulatedContent =
                 '⚠️ **本地 MiniCPM-V-4.6 服务尚未就绪**\n\n'
                 '• 目标地址：`${effectiveConfig.baseUrl}`\n'
-                '• 请确保已安装并启动本地 `llama-server`（绑定 `--port 58588` 并挂载 `--mmproj` 视觉权重）；\n'
-                '• 或在右上角 **⚙️ 设置** 中配置 DeepSeek / OpenAI API Key。';
+                '• 请确保已安装并启动本地 `llama-server`（绑定 `--port 58588` 并挂载 `--mmproj` 视觉权重）。';
           }
 
           state = state.copyWith(

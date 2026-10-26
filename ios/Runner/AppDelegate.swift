@@ -12,8 +12,28 @@ import Network
   ) -> Bool {
     let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
     
-    // Keep device screen active during session to prevent unexpected suspension
-    UIApplication.shared.isIdleTimerDisabled = true
+    // Keep device screen active during session to prevent unexpected suspension/locking
+    DispatchQueue.main.async {
+      UIApplication.shared.isIdleTimerDisabled = true
+    }
+
+    Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { _ in
+      if !UIApplication.shared.isIdleTimerDisabled {
+        UIApplication.shared.isIdleTimerDisabled = true
+      }
+    }
+
+    if let controller = window?.rootViewController as? FlutterViewController {
+      let channel = FlutterMethodChannel(name: "wonderbox/screen", binaryMessenger: controller.binaryMessenger)
+      channel.setMethodCallHandler { call, result in
+        if call.method == "keepScreenOn" {
+          UIApplication.shared.isIdleTimerDisabled = true
+          result(true)
+        } else {
+          result(FlutterMethodNotImplemented)
+        }
+      }
+    }
 
     // Start on-device in-process Metal inference server on 127.0.0.1:58588
     ensureServerRunning()
@@ -23,11 +43,17 @@ import Network
 
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
+    DispatchQueue.main.async {
+      UIApplication.shared.isIdleTimerDisabled = true
+    }
     ensureServerRunning()
   }
 
   override func applicationWillEnterForeground(_ application: UIApplication) {
     super.applicationWillEnterForeground(application)
+    DispatchQueue.main.async {
+      UIApplication.shared.isIdleTimerDisabled = true
+    }
     ensureServerRunning()
   }
 

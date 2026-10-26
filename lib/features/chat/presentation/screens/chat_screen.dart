@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../camera/presentation/controllers/camera_controller.dart';
 import '../../../camera/presentation/widgets/camera_preview_floating.dart';
 import '../../../camera/presentation/widgets/camera_toggle_pill.dart';
 import '../controllers/ambient_assistant_controller.dart';
@@ -7,7 +9,6 @@ import '../controllers/chat_controller.dart';
 import '../widgets/ambient_listening_pill.dart';
 import '../widgets/chat_input_box.dart';
 import '../widgets/message_bubble.dart';
-import '../widgets/config_sheet.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key});
@@ -16,19 +17,37 @@ class ChatScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends ConsumerState<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
+  static const _screenChannel = MethodChannel('wonderbox/screen');
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _keepScreenOn();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(cameraControllerProvider.notifier).initialize();
       ref.read(ambientAssistantProvider.notifier).startAmbientListening();
     });
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _keepScreenOn();
+    }
+  }
+
+  void _keepScreenOn() {
+    try {
+      _screenChannel.invokeMethod('keepScreenOn');
+    } catch (_) {}
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
     super.dispose();
   }
@@ -48,7 +67,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final chatState = ref.watch(chatControllerProvider);
-    final config = ref.watch(llmConfigProvider);
     final theme = Theme.of(context);
 
     // Auto scroll when messages update
@@ -66,7 +84,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           children: [
             const Text('WonderBox AI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
             Text(
-              '${config.model} (${config.apiKey.isEmpty ? "No Key" : "Ready"})',
+              'MiniCPM-V-4.6 · 原生端侧协同',
               style: TextStyle(
                 fontSize: 12,
                 color: theme.colorScheme.onSurfaceVariant,
@@ -82,17 +100,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 10, horizontal: 4),
             child: AmbientListeningPill(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.tune),
-            tooltip: 'Model Settings',
-            onPressed: () {
-              showModalBottomSheet(
-                context: context,
-                isScrollControlled: true,
-                builder: (_) => const ConfigSheet(),
-              );
-            },
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline),
@@ -200,17 +207,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     label: const Text('开启伴听体验'),
                                     onPressed: () {
                                       ref.read(ambientAssistantProvider.notifier).startAmbientListening();
-                                    },
-                                  ),
-                                  OutlinedButton.icon(
-                                    icon: const Icon(Icons.tune, size: 18),
-                                    label: const Text('模型设置'),
-                                    onPressed: () {
-                                      showModalBottomSheet(
-                                        context: context,
-                                        isScrollControlled: true,
-                                        builder: (_) => const ConfigSheet(),
-                                      );
                                     },
                                   ),
                                 ],
