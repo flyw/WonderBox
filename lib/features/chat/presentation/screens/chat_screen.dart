@@ -113,40 +113,107 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               Expanded(
                 child: chatState.messages.isEmpty
                     ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24.0),
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(
-                                Icons.auto_awesome,
-                                size: 48,
-                                color: theme.colorScheme.primary.withValues(alpha: 0.6),
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  Icons.auto_awesome,
+                                  size: 40,
+                                  color: theme.colorScheme.primary,
+                                ),
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                'SOTA LLM Architecture Ready',
-                                style: theme.textTheme.titleMedium,
+                                'WonderBox 多模态智能伴听助手',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                ),
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                'Click the settings icon in the top right to configure your API Key.\nSupports DeepSeek (V3 & R1 Reasoning), OpenAI, Ollama, etc.',
+                                '全时录音 · TEN VAD 切句 · Jev-Style 判决 · 视界抓拍 · 端侧推理',
                                 textAlign: TextAlign.center,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    _buildFeatureRow(
+                                      theme,
+                                      icon: Icons.mic,
+                                      title: 'TEN VAD 灵敏切句',
+                                      desc: '256采样/16ms极速判决，彻底避免首字吞音',
+                                    ),
+                                    const Divider(height: 16),
+                                    _buildFeatureRow(
+                                      theme,
+                                      icon: Icons.gavel,
+                                      title: 'Jev-Style-0.8B 意图对齐',
+                                      desc: '快速判别新短句是否切合上下文，自动过滤闲聊',
+                                    ),
+                                    const Divider(height: 16),
+                                    _buildFeatureRow(
+                                      theme,
+                                      icon: Icons.camera_alt,
+                                      title: '实时现场视界抓拍',
+                                      desc: '判决相关时秒级抓拍镜头画面并注入上下文',
+                                    ),
+                                    const Divider(height: 16),
+                                    _buildFeatureRow(
+                                      theme,
+                                      icon: Icons.memory,
+                                      title: 'MiniCPM-V-4.6 端侧推理',
+                                      desc: '多模态深度思考，毫秒级打字机流式回复',
+                                    ),
+                                  ],
                                 ),
                               ),
                               const SizedBox(height: 24),
-                              FilledButton.tonalIcon(
-                                icon: const Icon(Icons.tune),
-                                label: const Text('Configure Provider'),
-                                onPressed: () {
-                                  showModalBottomSheet(
-                                    context: context,
-                                    isScrollControlled: true,
-                                    builder: (_) => const ConfigSheet(),
-                                  );
-                                },
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 8,
+                                alignment: WrapAlignment.center,
+                                children: [
+                                  FilledButton.icon(
+                                    icon: const Icon(Icons.mic, size: 18),
+                                    label: const Text('开启伴听体验'),
+                                    onPressed: () {
+                                      ref.read(ambientAssistantProvider.notifier).startAmbientListening();
+                                    },
+                                  ),
+                                  OutlinedButton.icon(
+                                    icon: const Icon(Icons.tune, size: 18),
+                                    label: const Text('模型设置'),
+                                    onPressed: () {
+                                      showModalBottomSheet(
+                                        context: context,
+                                        isScrollControlled: true,
+                                        builder: (_) => const ConfigSheet(),
+                                      );
+                                    },
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -176,6 +243,46 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           const CameraPreviewFloating(),
         ],
       ),
+    );
+  }
+
+  Widget _buildFeatureRow(
+    ThemeData theme, {
+    required IconData icon,
+    required String title,
+    required String desc,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 18, color: theme.colorScheme.primary),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                desc,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
