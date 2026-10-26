@@ -484,8 +484,20 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
         let rate = args?["rate"] as? Double ?? 0.5
         let pitch = args?["pitch"] as? Double ?? 1.0
         let lang = args?["lang"] as? String ?? "zh-CN"
-        self.speak(text: text, rate: Float(rate), pitch: Float(pitch), language: lang)
+        let voiceId = args?["voiceIdentifier"] as? String
+        self.speak(text: text, rate: Float(rate), pitch: Float(pitch), language: lang, voiceIdentifier: voiceId)
         result(true)
+      case "getVoices":
+        let voices = AVSpeechSynthesisVoice.speechVoices()
+          .filter { $0.language.lowercased().hasPrefix("zh") }
+          .map { [
+            "identifier": $0.identifier,
+            "name": $0.name,
+            "language": $0.language,
+            "quality": $0.quality.rawValue, // 1: default, 2: enhanced, 3: premium
+            "gender": $0.gender.rawValue
+          ] }
+        result(voices)
       case "stop":
         self.stop()
         result(true)
@@ -503,7 +515,7 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
     }
   }
 
-  func speak(text: String, rate: Float = 0.5, pitch: Float = 1.0, language: String = "zh-CN") {
+  func speak(text: String, rate: Float = 0.5, pitch: Float = 1.0, language: String = "zh-CN", voiceIdentifier: String? = nil) {
     configureAudioSession()
 
     if synthesizer.isSpeaking {
@@ -514,12 +526,90 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
     guard !trimmed.isEmpty else { return }
 
     let utterance = AVSpeechUtterance(string: trimmed)
-    utterance.voice = AVSpeechSynthesisVoice(language: language) ?? AVSpeechSynthesisVoice(language: "zh-CN")
+    utterance.voice = selectBestVoice(preferredId: voiceIdentifier, language: language)
     utterance.rate = rate * AVSpeechUtteranceDefaultSpeechRate * 2.0
     utterance.pitchMultiplier = pitch
     utterance.volume = 1.0
 
     synthesizer.speak(utterance)
+  }
+
+  func selectBestVoice(preferredId: String?, language: String = "zh-CN") -> AVSpeechSynthesisVoice? {
+    let allVoices = AVSpeechSynthesisVoice.speechVoices()
+
+    // 1. Explicit preferred voice identifier
+    if let id = preferredId, !id.isEmpty {
+      if let matched = allVoices.first(where: { $0.identifier == id }) {
+        print("[NativeTTS] Using explicit voice: \(matched.name) (\(matched.identifier)), quality=\(matched.quality.rawValue)")
+        return matched
+      }
+    }
+
+    // Quality check helpers with iOS version safety
+    func isPremiumQuality(_ v: AVSpeechSynthesisVoice) -> Bool {
+      if #available(iOS 16.0, *) {
+        return v.quality == .premium
+      }
+      return false
+    }
+
+    func isEnhancedQuality(_ v: AVSpeechSynthesisVoice) -> Bool {
+      return v.quality == .enhanced
+    }
+
+    func isHighFidelity(_ v: AVSpeechSynthesisVoice) -> Bool {
+      return isPremiumQuality(v) || isEnhancedQuality(v)
+    }
+
+    // 2. Filter Chinese voices
+    let zhVoices = allVoices.filter { $0.language.lowercased().hasPrefix("zh") }
+    for v in zhVoices {
+      print("[NativeTTS] Available voice: name=\(v.name), id=\(v.identifier), quality=\(v.quality.rawValue), lang=\(v.language)")
+    }
+
+    // 3. Prioritize Siri High-Fidelity (.premium / .enhanced)
+    if let siriHigh = zhVoices.first(where: {
+      ($0.name.localizedCaseInsensitiveContains("siri") || $0.identifier.localizedCaseInsensitiveContains("siri")) &&
+      isHighFidelity($0)
+    }) {
+      print("[NativeTTS] Auto-selected Siri High-Fidelity: \(siriHigh.name) (\(siriHigh.identifier))")
+      return siriHigh
+    }
+
+    // 4. Prioritize any Siri voice
+    if let anySiri = zhVoices.first(where: {
+      $0.name.localizedCaseInsensitiveContains("siri") || $0.identifier.localizedCaseInsensitiveContains("siri")
+    }) {
+      print("[NativeTTS] Auto-selected Siri: \(anySiri.name) (\(anySiri.identifier))")
+      return anySiri
+    }
+
+    // 5. Prioritize Premium zh-CN (e.g. Tingting Premium)
+    if let premiumZh = zhVoices.first(where: { isPremiumQuality($0) && $0.language.lowercased().contains("cn") }) {
+      print("[NativeTTS] Auto-selected Premium zh-CN: \(premiumZh.name) (\(premiumZh.identifier))")
+      return premiumZh
+    }
+
+    // 6. Prioritize Enhanced zh-CN (e.g. Tingting Enhanced)
+    if let enhancedZh = zhVoices.first(where: { isEnhancedQuality($0) && $0.language.lowercased().contains("cn") }) {
+      print("[NativeTTS] Auto-selected Enhanced zh-CN: \(enhancedZh.name) (\(enhancedZh.identifier))")
+      return enhancedZh
+    }
+
+    // 7. Any Premium / Enhanced voice
+    if let anyPremium = zhVoices.first(where: { isPremiumQuality($0) }) {
+      print("[NativeTTS] Auto-selected Premium: \(anyPremium.name) (\(anyPremium.identifier))")
+      return anyPremium
+    }
+    if let anyEnhanced = zhVoices.first(where: { isEnhancedQuality($0) }) {
+      print("[NativeTTS] Auto-selected Enhanced: \(anyEnhanced.name) (\(anyEnhanced.identifier))")
+      return anyEnhanced
+    }
+
+    // 8. Fallback
+    let fallback = AVSpeechSynthesisVoice(language: language) ?? AVSpeechSynthesisVoice(language: "zh-CN")
+    print("[NativeTTS] Fallback voice: \(fallback?.name ?? "default")")
+    return fallback
   }
 
   func stop() {

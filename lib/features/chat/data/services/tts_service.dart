@@ -78,6 +78,7 @@ class TtsService {
     double rate = 0.5,
     double pitch = 1.0,
     String lang = 'zh-CN',
+    String? voiceIdentifier,
   }) async {
     final clean = cleanMarkdown(text);
     if (clean.isEmpty) return;
@@ -88,9 +89,23 @@ class TtsService {
         'rate': rate,
         'pitch': pitch,
         'lang': lang,
+        'voiceIdentifier': voiceIdentifier,
       });
     } catch (e) {
       debugPrint('[TtsService] Speak error: $e');
+    }
+  }
+
+  /// Retrieves all Chinese / system voices available on the iOS device
+  Future<List<Map<String, dynamic>>> getAvailableVoices() async {
+    try {
+      final list =
+          await _channel.invokeListMethod<Map<dynamic, dynamic>>('getVoices');
+      if (list == null) return [];
+      return list.map((item) => Map<String, dynamic>.from(item)).toList();
+    } catch (e) {
+      debugPrint('[TtsService] getAvailableVoices error: $e');
+      return [];
     }
   }
 
