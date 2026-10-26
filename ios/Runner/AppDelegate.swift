@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import Network
+import AVFoundation
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -33,6 +34,7 @@ import Network
           result(FlutterMethodNotImplemented)
         }
       }
+      NativeTtsManager.shared.setup(messenger: controller.binaryMessenger)
     }
 
     // Start on-device in-process Metal inference server on 127.0.0.1:58588
@@ -59,6 +61,9 @@ import Network
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "WonderboxTts") {
+      NativeTtsManager.shared.setup(messenger: registrar.messenger())
+    }
   }
 
   // MARK: - In-Process On-Device Inference Server (127.0.0.1:58588)
@@ -452,5 +457,113 @@ import Network
       return jpegData
     }
     return data
+  }
+}
+
+// MARK: - Native iOS AVSpeechSynthesizer TTS Manager
+class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
+  static let shared = NativeTtsManager()
+
+  private let synthesizer = AVSpeechSynthesizer()
+  private var channel: FlutterMethodChannel?
+
+  override init() {
+    super.init()
+    synthesizer.delegate = self
+  }
+
+  func setup(messenger: FlutterBinaryMessenger) {
+    if channel != nil { return }
+    channel = FlutterMethodChannel(name: "wonderbox/tts", binaryMessenger: messenger)
+    channel?.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else { return }
+      switch call.method {
+      case "speak":
+        let args = call.arguments as? [String: Any]
+        let text = args?["text"] as? String ?? ""
+        let rate = args?["rate"] as? Double ?? 0.5
+        let pitch = args?["pitch"] as? Double ?? 1.0
+        let lang = args?["lang"] as? String ?? "zh-CN"
+        self.speak(text: text, rate: Float(rate), pitch: Float(pitch), language: lang)
+        result(true)
+      case "stop":
+        self.stop()
+        result(true)
+      case "pause":
+        self.pause()
+        result(true)
+      case "resume":
+        self.resume()
+        result(true)
+      case "isSpeaking":
+        result(self.synthesizer.isSpeaking)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  func speak(text: String, rate: Float = 0.5, pitch: Float = 1.0, language: String = "zh-CN") {
+    configureAudioSession()
+
+    if synthesizer.isSpeaking {
+      synthesizer.stopSpeaking(at: .immediate)
+    }
+
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+
+    let utterance = AVSpeechUtterance(string: trimmed)
+    utterance.voice = AVSpeechSynthesisVoice(language: language) ?? AVSpeechSynthesisVoice(language: "zh-CN")
+    utterance.rate = rate * AVSpeechUtteranceDefaultSpeechRate * 2.0
+    utterance.pitchMultiplier = pitch
+    utterance.volume = 1.0
+
+    synthesizer.speak(utterance)
+  }
+
+  func stop() {
+    if synthesizer.isSpeaking {
+      synthesizer.stopSpeaking(at: .immediate)
+    }
+  }
+
+  func pause() {
+    if synthesizer.isSpeaking {
+      synthesizer.pauseSpeaking(at: .immediate)
+    }
+  }
+
+  func resume() {
+    if synthesizer.isPaused {
+      synthesizer.continueSpeaking()
+    }
+  }
+
+  private func configureAudioSession() {
+    do {
+      let audioSession = AVAudioSession.sharedInstance()
+      try audioSession.setCategory(
+        .playAndRecord,
+        mode: .default,
+        options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP, .mixWithOthers]
+      )
+      try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+    } catch {
+      print("[NativeTTS] Failed to configure AVAudioSession: \(error)")
+    }
+  }
+
+  // MARK: - AVSpeechSynthesizerDelegate
+  func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+    channel?.invokeMethod("onStart", arguments: nil)
+  }
+
+  func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+    channel?.invokeMethod("onComplete", arguments: nil)
+  }
+
+  func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+    channel?.invokeMethod("onCancel", arguments: nil)
   }
 }

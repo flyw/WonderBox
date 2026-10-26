@@ -7,6 +7,7 @@ import '../../../camera/presentation/widgets/camera_toggle_pill.dart';
 import '../controllers/ambient_assistant_controller.dart';
 import '../controllers/chat_controller.dart';
 import '../widgets/ambient_listening_pill.dart';
+import '../widgets/tts_toggle_pill.dart';
 import '../widgets/chat_input_box.dart';
 import '../widgets/message_bubble.dart';
 
@@ -98,8 +99,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
             child: CameraTogglePill(),
           ),
           const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+            padding: EdgeInsets.symmetric(vertical: 10, horizontal: 2),
             child: AmbientListeningPill(),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10, horizontal: 2),
+            child: TtsTogglePill(),
           ),
           IconButton(
             icon: const Icon(Icons.delete_outline),

@@ -8,6 +8,7 @@ import '../../domain/models/chat_message.dart';
 import '../../domain/models/llm_config.dart';
 import '../../data/repositories/chat_repository_impl.dart';
 import '../../data/services/local_minicpm_service.dart';
+import 'tts_controller.dart';
 
 class ChatState {
   final List<ChatMessage> messages;
@@ -73,6 +74,9 @@ class ChatController extends Notifier<ChatState> {
   Future<void> sendMessage(String text, {String? imagePath}) async {
     final trimmed = text.trim();
     if ((trimmed.isEmpty && (imagePath == null || imagePath.isEmpty)) || state.isStreaming) return;
+
+    // Stop any ongoing speech playback
+    ref.read(ttsControllerProvider.notifier).stop();
 
     // Automatically capture live camera frame if no image was provided and camera is enabled
     String? effectiveImagePath = imagePath;
@@ -240,6 +244,11 @@ class ChatController extends Notifier<ChatState> {
 
       // Mark completed
       _finalizeMessage(assistantMessageId, MessageStatus.completed);
+
+      // Automatically read assistant response aloud via native TTS if enabled
+      if (accumulatedContent.isNotEmpty) {
+        ref.read(ttsControllerProvider.notifier).autoSpeak(accumulatedContent);
+      }
     } catch (e) {
       if (_cancelToken?.isCancelled ?? false) {
         _finalizeMessage(assistantMessageId, MessageStatus.completed);
@@ -264,6 +273,7 @@ class ChatController extends Notifier<ChatState> {
   }
 
   void stopStreaming() {
+    ref.read(ttsControllerProvider.notifier).stop();
     if (state.isStreaming && _cancelToken != null) {
       _cancelToken?.cancel('User cancelled generation');
       if (state.activeMessageId != null) {
@@ -274,6 +284,7 @@ class ChatController extends Notifier<ChatState> {
   }
 
   void clearChat() {
+    ref.read(ttsControllerProvider.notifier).stop();
     stopStreaming();
     state = const ChatState();
   }

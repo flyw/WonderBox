@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import '../../domain/models/chat_message.dart';
+import '../controllers/tts_controller.dart';
 import 'reasoning_foldout.dart';
 
 class MessageBubble extends StatelessWidget {
@@ -193,25 +195,54 @@ class MessageBubble extends StatelessWidget {
             ],
           ),
 
-          // Message action footer (copy button)
+          // Message action footer (TTS speak and copy buttons)
           if (!isUser && message.content.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(left: 42, top: 2),
-              child: IconButton(
-                icon: const Icon(Icons.copy, size: 14),
-                color: Colors.grey.shade600,
-                tooltip: 'Copy message',
-                constraints: const BoxConstraints(),
-                padding: const EdgeInsets.all(6),
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: message.content));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Copied to clipboard'),
-                      duration: Duration(seconds: 1),
-                    ),
-                  );
-                },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final ttsState = ref.watch(ttsControllerProvider);
+                      final isThisSpeaking =
+                          ttsState.isSpeaking && ttsState.currentSpeakingMessageId == message.id;
+                      return IconButton(
+                        icon: Icon(
+                          isThisSpeaking ? Icons.stop_circle_outlined : Icons.volume_up_outlined,
+                          size: 16,
+                          color: isThisSpeaking ? theme.colorScheme.primary : Colors.grey.shade600,
+                        ),
+                        tooltip: isThisSpeaking ? '停止朗读' : '语音朗读',
+                        constraints: const BoxConstraints(),
+                        padding: const EdgeInsets.all(6),
+                        onPressed: () {
+                          ref.read(ttsControllerProvider.notifier).speakMessage(
+                                messageId: message.id,
+                                text: message.content,
+                              );
+                        },
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.copy, size: 14),
+                    color: Colors.grey.shade600,
+                    tooltip: 'Copy message',
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.all(6),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: message.content));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('已复制到剪贴板'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
             ),
         ],

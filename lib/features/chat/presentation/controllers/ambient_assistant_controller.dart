@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/services/local_minicpm_service.dart';
 import '../../domain/services/topic_relevance_judge.dart';
 import '../controllers/chat_controller.dart';
+import '../controllers/tts_controller.dart';
 import '../../../camera/presentation/controllers/camera_controller.dart';
 import '../../../voice/data/datasources/ambient_voice_service.dart';
 
@@ -74,6 +75,10 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
 
     final success = await service.startListening(
       onSpeechDetectedChanged: (isDetected) {
+        if (isDetected) {
+          // Interrupt active TTS reading immediately when speech is detected
+          ref.read(ttsControllerProvider.notifier).stop();
+        }
         state = state.copyWith(
           isSpeechActive: isDetected,
           statusMessage: isDetected ? '正在聆听发言...' : 'TEN VAD 伴听中 (静候短句)',
