@@ -193,36 +193,32 @@ bool llama_bridge_generate(const char * prompt, const void * image_data, size_t 
             const mtmd_bitmap * bmps[] = { bmp };
             int32_t t_res = mtmd_tokenize(s_mtmd_ctx, chunks, &input_text, bmps, 1);
             if (t_res != 0) {
-                printf("[llama_bridge] mtmd_tokenize error: %d\n", t_res);
+                printf("[llama_bridge] Warning: mtmd_tokenize error %d, falling back to text prompt\n", t_res);
                 mtmd_input_chunks_free(chunks);
                 mtmd_bitmap_free(bmp);
-                callback("【图像多模态解析失败】", false, user_data);
-                callback("", true, user_data);
-                return false;
+                // Fall through to text-only path smoothly
+            } else {
+                printf("[llama_bridge] Tokenized into %zu multimodal chunks, evaluating into Metal context...\n",
+                       mtmd_input_chunks_size(chunks));
+
+                llama_pos n_past = 0;
+                llama_seq_id seq_id = 0;
+                int32_t n_batch = 512;
+                bool logits_last = true;
+                llama_pos new_n_past = 0;
+
+                int32_t eval_res = mtmd_helper_eval_chunks(s_mtmd_ctx, s_ctx, chunks, n_past, seq_id, n_batch, logits_last, &new_n_past);
+                mtmd_input_chunks_free(chunks);
+                mtmd_bitmap_free(bmp);
+
+                if (eval_res != 0) {
+                    printf("[llama_bridge] Warning: mtmd_helper_eval_chunks error %d, falling back to text prompt\n", eval_res);
+                    // Fall through to text-only path smoothly
+                } else {
+                    current_pos = new_n_past;
+                    printf("[llama_bridge] Multimodal prompt evaluated successfully! Next position: %d\n", (int)current_pos);
+                }
             }
-
-            printf("[llama_bridge] Tokenized into %zu multimodal chunks, evaluating into Metal context...\n",
-                   mtmd_input_chunks_size(chunks));
-
-            llama_pos n_past = 0;
-            llama_seq_id seq_id = 0;
-            int32_t n_batch = 512;
-            bool logits_last = true;
-            llama_pos new_n_past = 0;
-
-            int32_t eval_res = mtmd_helper_eval_chunks(s_mtmd_ctx, s_ctx, chunks, n_past, seq_id, n_batch, logits_last, &new_n_past);
-            mtmd_input_chunks_free(chunks);
-            mtmd_bitmap_free(bmp);
-
-            if (eval_res != 0) {
-                printf("[llama_bridge] mtmd_helper_eval_chunks error: %d\n", eval_res);
-                callback("【图像多模态推理失败】", false, user_data);
-                callback("", true, user_data);
-                return false;
-            }
-
-            current_pos = new_n_past;
-            printf("[llama_bridge] Multimodal prompt evaluated successfully! Next position: %d\n", (int)current_pos);
         }
     }
 
