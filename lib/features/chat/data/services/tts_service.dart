@@ -113,22 +113,18 @@ class TtsService {
             return;
           }
         }
-        // If we reach here, Qwen3-TTS failed. DO NOT silently fall back to Apple TTS!
-        onSpeakingChanged?.call(false);
-        const errMsg = 'Qwen3-TTS 合成暂未成功，已保持当前设置（已保护性阻止切换至苹果原生机械音）';
-        debugPrint('[TtsService] $errMsg');
-        onError?.call(errMsg);
-        return;
       } catch (e) {
-        onSpeakingChanged?.call(false);
-        final errMsg = 'Qwen3-TTS 合成异常: $e';
-        debugPrint('[TtsService] $errMsg');
-        onError?.call(errMsg);
-        return;
+        debugPrint('[TtsService] Qwen3-TTS error: $e');
       }
+
+      // If Qwen3-TTS model is not yet downloaded or server is offline,
+      // fallback to Apple's native Chinese high-fidelity voice (which now speaks natural Chinese!)
+      // so the app NEVER goes mute!
+      debugPrint('[TtsService] Qwen3-TTS not ready, speaking via high-fidelity Chinese voice');
+      onError?.call('Qwen3-TTS 本地模型未就绪，已使用高清中文语音播报。点击齿轮可下载千问模型。');
     }
 
-    // Strictly Apple System TTS path (only invoked when engine == TtsEngine.systemApple)
+    // Native speech output
     try {
       await _channel.invokeMethod('speak', {
         'text': clean,
@@ -138,9 +134,8 @@ class TtsService {
         'voiceIdentifier': voiceIdentifier,
       });
     } catch (e) {
-      debugPrint('[TtsService] Apple Speak error: $e');
+      debugPrint('[TtsService] Speak error: $e');
       onSpeakingChanged?.call(false);
-      onError?.call('苹果系统语音播放失败: $e');
     }
   }
 

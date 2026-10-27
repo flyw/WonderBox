@@ -604,27 +604,15 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDele
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
 
-    let voice = selectBestVoice(preferredId: voiceIdentifier, language: language)
-
-    // Detect if the target voice is English and text contains Chinese
-    let isEnglishVoice = voice?.language.lowercased().hasPrefix("en") ?? false
     let containsChinese = trimmed.unicodeScalars.contains { scalar in
       return (0x4E00...0x9FFF).contains(scalar.value) ||
              (0x3400...0x4DBF).contains(scalar.value) ||
              (0x20000...0x2A6DF).contains(scalar.value)
     }
 
-    var textToSpeak = trimmed
-    if isEnglishVoice && containsChinese {
-      // Transliterate Chinese characters into clean Latin/Pinyin so American Siri voice speaks it fluently
-      if let pinyin = trimmed.applyingTransform(.toLatin, reverse: false)?
-                             .applyingTransform(.stripDiacritics, reverse: false) {
-        textToSpeak = pinyin
-        print("[NativeTTS] Converted Chinese text to Pinyin for English voice (\(voice?.name ?? "en")): \(textToSpeak)")
-      }
-    }
+    let voice = selectBestVoice(preferredId: voiceIdentifier, language: language, isChinese: containsChinese)
 
-    let utterance = AVSpeechUtterance(string: textToSpeak)
+    let utterance = AVSpeechUtterance(string: trimmed)
     utterance.voice = voice
     utterance.rate = rate * AVSpeechUtteranceDefaultSpeechRate * 2.0
     utterance.pitchMultiplier = pitch
@@ -633,7 +621,7 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDele
     synthesizer.speak(utterance)
   }
 
-  func selectBestVoice(preferredId: String?, language: String = "zh-CN") -> AVSpeechSynthesisVoice? {
+  func selectBestVoice(preferredId: String?, language: String = "zh-CN", isChinese: Bool = true) -> AVSpeechSynthesisVoice? {
     let allVoices = AVSpeechSynthesisVoice.speechVoices()
 
     // 1. Explicit preferred voice identifier
@@ -698,56 +686,61 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDele
              v.identifier.localizedCaseInsensitiveContains("siri")
     }
 
-    // Diagnostic dump to captures directory
-    if let docDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-      let dumpDir = docDir.appendingPathComponent("captures")
-      try? FileManager.default.createDirectory(at: dumpDir, withIntermediateDirectories: true, attributes: nil)
-      let dumpPath = dumpDir.appendingPathComponent("installed_voices.txt")
-      let lines = allVoices.map { "Name: \($0.name) | ID: \($0.identifier) | Quality: \($0.quality.rawValue) | Gender: \($0.gender.rawValue) | Lang: \($0.language)" }.joined(separator: "\n")
-      try? lines.write(to: dumpPath, atomically: true, encoding: .utf8)
-    }
-
-    // Priority 0: Siri Voice 4 American (Top user choice)
-    if let v = allVoices.first(where: { isSiriVoice4American($0) }) {
-      print("[NativeTTS] Priority 0 - Selected Siri Voice 4 American: \(v.name) (\(v.identifier))")
-      return v
-    }
-
-    // Priority 0.5: Any other English US Siri voice (e.g. Aaron / Nicky / Voice 1)
-    if let v = allVoices.first(where: {
-      let lang = $0.language.replacingOccurrences(of: "_", with: "-").lowercased()
-      return (lang == "en-us" || lang.hasPrefix("en-us")) && isSiriVoice($0) && isHighFidelity($0)
-    }) {
-      print("[NativeTTS] Priority 0.5 - Selected English US Siri High-Fidelity: \(v.name) (\(v.identifier))")
-      return v
-    }
-
     let zhVoices = allVoices.filter {
       let lang = $0.language.replacingOccurrences(of: "_", with: "-").lowercased()
       return lang == "zh-cn" || lang.hasPrefix("zh-cn")
     }
 
-    // Priority 1: Siri Female High-Fidelity (.premium / .enhanced)
-    if let v = zhVoices.first(where: { isSiriVoice($0) && isFemaleVoice($0) && isHighFidelity($0) }) {
-      print("[NativeTTS] Priority 1 - Selected Siri Female High-Fidelity: \(v.name) (\(v.identifier))")
-      return v
+    let enVoices = allVoices.filter {
+      let lang = $0.language.replacingOccurrences(of: "_", with: "-").lowercased()
+      return lang == "en-us" || lang.hasPrefix("en-us")
     }
 
-    // Priority 2: Siri Female (any quality)
-    if let v = zhVoices.first(where: { isSiriVoice($0) && isFemaleVoice($0) }) {
-      print("[NativeTTS] Priority 2 - Selected Siri Female: \(v.name) (\(v.identifier))")
-      return v
+    // IF CHINESE TEXT OR CHINESE LANGUAGE: MUST USE CHINESE HIGH-FIDELITY VOICE!
+    if isChinese || language.lowercased().hasPrefix("zh") {
+      // 1. Siri Chinese Female (High-Fidelity)
+      if let v = zhVoices.first(where: { isSiriVoice($0) && isFemaleVoice($0) && isHighFidelity($0) }) {
+        print("[NativeTTS] Selected zh-CN Siri Female High-Fidelity: \(v.name)")
+        return v
+      }
+      // 2. Siri Chinese Female
+      if let v = zhVoices.first(where: { isSiriVoice($0) && isFemaleVoice($0) }) {
+        print("[NativeTTS] Selected zh-CN Siri Female: \(v.name)")
+        return v
+      }
+      // 3. Tingting / Yushu Premium
+      if let v = zhVoices.first(where: { isFemaleVoice($0) && isPremiumQuality($0) }) {
+        print("[NativeTTS] Selected zh-CN Premium Female: \(v.name)")
+        return v
+      }
+      // 4. Tingting / Yushu Enhanced
+      if let v = zhVoices.first(where: { isFemaleVoice($0) && isEnhancedQuality($0) }) {
+        print("[NativeTTS] Selected zh-CN Enhanced Female: \(v.name)")
+        return v
+      }
+      // 5. Any Siri Chinese
+      if let v = zhVoices.first(where: { isSiriVoice($0) }) {
+        print("[NativeTTS] Selected zh-CN Siri: \(v.name)")
+        return v
+      }
+      // 6. Any Chinese female
+      if let v = zhVoices.first(where: { isFemaleVoice($0) }) {
+        print("[NativeTTS] Selected zh-CN Female: \(v.name)")
+        return v
+      }
+      // Fallback: any zh-CN
+      return zhVoices.first ?? AVSpeechSynthesisVoice(language: "zh-CN")
     }
 
-    // Priority 3: Any Siri High-Fidelity
-    if let v = zhVoices.first(where: { isSiriVoice($0) && isHighFidelity($0) }) {
-      print("[NativeTTS] Priority 3 - Selected Siri High-Fidelity: \(v.name) (\(v.identifier))")
+    // ENGLISH TEXT:
+    if let v = enVoices.first(where: { isSiriVoice4American($0) }) {
+      print("[NativeTTS] Selected English Siri Voice 4 American: \(v.name)")
       return v
     }
-
-    // Priority 4: Any Siri
-    if let v = zhVoices.first(where: { isSiriVoice($0) }) {
-      print("[NativeTTS] Priority 4 - Selected Siri: \(v.name) (\(v.identifier))")
+    if let v = enVoices.first(where: { isSiriVoice($0) && isHighFidelity($0) }) {
+      return v
+    }
+    return enVoices.first ?? AVSpeechSynthesisVoice(language: "en-US")
       return v
     }
 
