@@ -1,5 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/storage/preferences_provider.dart';
+import '../../../../core/storage/storage_keys.dart';
 import '../../data/services/local_minicpm_service.dart';
 import '../../domain/services/topic_relevance_judge.dart';
 import '../controllers/chat_controller.dart';
@@ -78,10 +81,13 @@ class AmbientAssistantState {
 
 class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
   int _lastRmsTimestamp = 0;
+  late final SharedPreferences _prefs;
 
   @override
   AmbientAssistantState build() {
     final service = ref.read(ambientVoiceServiceProvider);
+    _prefs = ref.watch(sharedPreferencesProvider);
+
     ref.onDispose(() {
       service.stopListening();
     });
@@ -95,10 +101,22 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
       _syncMuteState();
     });
 
+    final savedDistanceRatio = _prefs.getDouble(StorageKeys.vadDistanceRatio) ?? 0.45;
+    final savedMinRms = _prefs.getDouble(StorageKeys.vadMinRms) ?? service.minRmsThreshold;
+    final savedVadThreshold = _prefs.getDouble(StorageKeys.vadThreshold) ?? service.vadThreshold;
+    final savedMinSpeech = _prefs.getDouble(StorageKeys.vadMinSpeech) ?? service.minSpeechDuration;
+
+    service.updateConfig(
+      vadThreshold: savedVadThreshold,
+      minRmsThreshold: savedMinRms,
+      minSpeechDuration: savedMinSpeech,
+    );
+
     return AmbientAssistantState(
-      minRmsThreshold: service.minRmsThreshold,
-      vadThreshold: service.vadThreshold,
-      minSpeechDuration: service.minSpeechDuration,
+      distanceRatio: savedDistanceRatio,
+      minRmsThreshold: savedMinRms,
+      vadThreshold: savedVadThreshold,
+      minSpeechDuration: savedMinSpeech,
     );
   }
 
@@ -106,6 +124,7 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
     double? vadThreshold,
     double? minRmsThreshold,
     double? minSpeechDuration,
+    double? distanceRatio,
   }) {
     final service = ref.read(ambientVoiceServiceProvider);
     service.updateConfig(
@@ -113,10 +132,25 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
       minRmsThreshold: minRmsThreshold,
       minSpeechDuration: minSpeechDuration,
     );
+
+    if (vadThreshold != null) {
+      _prefs.setDouble(StorageKeys.vadThreshold, vadThreshold);
+    }
+    if (minRmsThreshold != null) {
+      _prefs.setDouble(StorageKeys.vadMinRms, minRmsThreshold);
+    }
+    if (minSpeechDuration != null) {
+      _prefs.setDouble(StorageKeys.vadMinSpeech, minSpeechDuration);
+    }
+    if (distanceRatio != null) {
+      _prefs.setDouble(StorageKeys.vadDistanceRatio, distanceRatio);
+    }
+
     state = state.copyWith(
       vadThreshold: vadThreshold ?? state.vadThreshold,
       minRmsThreshold: minRmsThreshold ?? state.minRmsThreshold,
       minSpeechDuration: minSpeechDuration ?? state.minSpeechDuration,
+      distanceRatio: distanceRatio ?? state.distanceRatio,
     );
   }
 
@@ -146,6 +180,12 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
       minRmsThreshold: rms,
       minSpeechDuration: minSpeech,
     );
+
+    _prefs.setDouble(StorageKeys.vadDistanceRatio, clamped);
+    _prefs.setDouble(StorageKeys.vadThreshold, vad);
+    _prefs.setDouble(StorageKeys.vadMinRms, rms);
+    _prefs.setDouble(StorageKeys.vadMinSpeech, minSpeech);
+
     state = state.copyWith(
       distanceRatio: clamped,
       vadThreshold: vad,

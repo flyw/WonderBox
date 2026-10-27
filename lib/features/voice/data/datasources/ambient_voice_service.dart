@@ -317,7 +317,9 @@ class AmbientVoiceService {
 
     await _recordStreamSub?.cancel();
     _recordStreamSub = null;
-    await _audioRecorder.stop();
+    try {
+      await _audioRecorder.stop();
+    } catch (_) {}
 
     _vad?.free();
     _vad = null;

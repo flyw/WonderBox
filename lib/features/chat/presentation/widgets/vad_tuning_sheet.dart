@@ -317,6 +317,7 @@ class VadTuningSheet extends ConsumerWidget {
                             minRmsThreshold: 0.008,
                             vadThreshold: 0.40,
                             minSpeechDuration: 0.18,
+                            distanceRatio: 0.45,
                           );
                         },
                       ),
@@ -334,6 +335,7 @@ class VadTuningSheet extends ConsumerWidget {
                             minRmsThreshold: 0.020,
                             vadThreshold: 0.50,
                             minSpeechDuration: 0.25,
+                            distanceRatio: 0.10,
                           );
                         },
                       ),
@@ -352,6 +354,7 @@ class VadTuningSheet extends ConsumerWidget {
                       minRmsThreshold: 0.003,
                       vadThreshold: 0.35,
                       minSpeechDuration: 0.12,
+                      distanceRatio: 0.85,
                     );
                   },
                 ),

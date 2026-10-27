@@ -1,4 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/storage/preferences_provider.dart';
+import '../../../../core/storage/storage_keys.dart';
 import '../../data/services/tts_service.dart';
 
 class TtsState {
@@ -47,10 +50,12 @@ class TtsState {
 
 class TtsNotifier extends Notifier<TtsState> {
   late final TtsService _service;
+  late final SharedPreferences _prefs;
 
   @override
   TtsState build() {
     _service = ref.watch(ttsServiceProvider);
+    _prefs = ref.watch(sharedPreferencesProvider);
     _service.onSpeakingChanged = (speaking) {
       state = state.copyWith(
         isSpeaking: speaking,
@@ -58,14 +63,31 @@ class TtsNotifier extends Notifier<TtsState> {
       );
     };
 
-    // Load available iOS voices asynchronously
-    Future.microtask(() => loadAvailableVoices());
+    final savedVoiceId = _prefs.getString(StorageKeys.ttsVoiceId);
+    final savedVoiceName = _prefs.getString(StorageKeys.ttsVoiceName);
+    final savedRate = _prefs.getDouble(StorageKeys.ttsRate) ?? 0.5;
+    final savedPitch = _prefs.getDouble(StorageKeys.ttsPitch) ?? 1.0;
+    final savedAutoSpeak = _prefs.getBool(StorageKeys.ttsAutoSpeak) ?? true;
 
-    return const TtsState();
+    // Load available iOS voices asynchronously
+    Future.microtask(() {
+      if (ref.mounted) {
+        loadAvailableVoices();
+      }
+    });
+
+    return TtsState(
+      selectedVoiceId: savedVoiceId,
+      selectedVoiceName: savedVoiceName,
+      rate: savedRate,
+      pitch: savedPitch,
+      isAutoSpeakEnabled: savedAutoSpeak,
+    );
   }
 
   Future<void> loadAvailableVoices() async {
     final rawVoices = await _service.getAvailableVoices();
+    if (!ref.mounted) return;
 
     // Filter strictly for US English (en-US) and CN Chinese (zh-CN)
     final voices = rawVoices.where((v) {
@@ -164,13 +186,26 @@ class TtsNotifier extends Notifier<TtsState> {
 
     if (voices.isNotEmpty) {
       final siri4Match = voices.where((v) => isSiriVoice4(v)).firstOrNull;
-      if (siri4Match != null && (targetId == null || !voices.any((v) => v['identifier'] == targetId))) {
-        targetId = siri4Match['identifier'] as String?;
-        targetName = siri4Match['name'] as String?;
-      } else if (targetId == null) {
-        final best = voices.first;
-        targetId = best['identifier'] as String?;
-        targetName = best['name'] as String?;
+      final hasMatchingVoice = targetId != null && voices.any((v) => v['identifier'] == targetId);
+
+      if (!hasMatchingVoice) {
+        if (siri4Match != null) {
+          targetId = siri4Match['identifier'] as String?;
+          targetName = siri4Match['name'] as String?;
+        } else {
+          final best = voices.first;
+          targetId = best['identifier'] as String?;
+          targetName = best['name'] as String?;
+        }
+        if (targetId != null) {
+          _prefs.setString(StorageKeys.ttsVoiceId, targetId);
+          if (targetName != null) {
+            _prefs.setString(StorageKeys.ttsVoiceName, targetName);
+          }
+        }
+      } else {
+        final matchedVoice = voices.firstWhere((v) => v['identifier'] == targetId);
+        targetName = matchedVoice['name'] as String? ?? targetName;
       }
     }
 
@@ -182,6 +217,8 @@ class TtsNotifier extends Notifier<TtsState> {
   }
 
   void selectVoice(String voiceId, String name) {
+    _prefs.setString(StorageKeys.ttsVoiceId, voiceId);
+    _prefs.setString(StorageKeys.ttsVoiceName, name);
     state = state.copyWith(
       selectedVoiceId: voiceId,
       selectedVoiceName: name,
@@ -189,15 +226,18 @@ class TtsNotifier extends Notifier<TtsState> {
   }
 
   void setRate(double rate) {
+    _prefs.setDouble(StorageKeys.ttsRate, rate);
     state = state.copyWith(rate: rate);
   }
 
   void setPitch(double pitch) {
+    _prefs.setDouble(StorageKeys.ttsPitch, pitch);
     state = state.copyWith(pitch: pitch);
   }
 
   void toggleAutoSpeak() {
     final next = !state.isAutoSpeakEnabled;
+    _prefs.setBool(StorageKeys.ttsAutoSpeak, next);
     state = state.copyWith(isAutoSpeakEnabled: next);
     if (!next) {
       _service.stop();

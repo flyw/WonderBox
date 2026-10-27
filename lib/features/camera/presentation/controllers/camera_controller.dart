@@ -1,5 +1,8 @@
 import 'package:camera/camera.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/storage/preferences_provider.dart';
+import '../../../../core/storage/storage_keys.dart';
 import '../../data/services/camera_service.dart';
 
 export '../../data/services/camera_service.dart' show AppCameraMode;
@@ -49,28 +52,43 @@ class CameraState {
 }
 
 class CameraNotifier extends Notifier<CameraState> {
+  late final SharedPreferences _prefs;
+
   @override
   CameraState build() {
     final service = ref.read(cameraServiceProvider);
+    _prefs = ref.watch(sharedPreferencesProvider);
+
+    final savedModeString = _prefs.getString(StorageKeys.cameraMode);
+    AppCameraMode initialMode = AppCameraMode.backUltraWide;
+    if (savedModeString != null) {
+      initialMode = AppCameraMode.values.firstWhere(
+        (m) => m.name == savedModeString,
+        orElse: () => AppCameraMode.backUltraWide,
+      );
+    }
+
     return CameraState(
-      mode: service.currentMode,
-      isCameraEnabled: service.isEnabled,
+      mode: initialMode,
+      isCameraEnabled: initialMode != AppCameraMode.off,
       isInitialized: service.isInitialized,
       currentCamera: service.currentMobileCamera,
     );
   }
 
-  Future<void> initialize([AppCameraMode defaultMode = AppCameraMode.backUltraWide]) async {
+  Future<void> initialize([AppCameraMode? defaultMode]) async {
     final service = ref.read(cameraServiceProvider);
-    state = state.copyWith(statusMessage: _getSwitchingStatusForMode(defaultMode));
-    final success = await service.setCameraMode(defaultMode);
+    final targetMode = defaultMode ?? state.mode;
+    state = state.copyWith(statusMessage: _getSwitchingStatusForMode(targetMode));
+    final success = await service.setCameraMode(targetMode);
     if (success) {
+      _prefs.setString(StorageKeys.cameraMode, targetMode.name);
       state = state.copyWith(
-        mode: defaultMode,
-        isCameraEnabled: defaultMode != AppCameraMode.off,
-        isInitialized: defaultMode != AppCameraMode.off,
+        mode: targetMode,
+        isCameraEnabled: targetMode != AppCameraMode.off,
+        isInitialized: targetMode != AppCameraMode.off,
         currentCamera: service.currentMobileCamera,
-        statusMessage: _getStatusForMode(defaultMode),
+        statusMessage: _getStatusForMode(targetMode),
         errorMessage: null,
       );
     } else {
@@ -94,6 +112,7 @@ class CameraNotifier extends Notifier<CameraState> {
 
     final success = await service.setCameraMode(newMode);
     if (success) {
+      _prefs.setString(StorageKeys.cameraMode, newMode.name);
       state = state.copyWith(
         mode: newMode,
         isCameraEnabled: newMode != AppCameraMode.off,
