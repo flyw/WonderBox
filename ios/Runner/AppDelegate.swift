@@ -741,39 +741,6 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDele
       return v
     }
     return enVoices.first ?? AVSpeechSynthesisVoice(language: "en-US")
-      return v
-    }
-
-    // Priority 5: Female zh-CN Premium (e.g. Tingting / Yushu Premium)
-    if let v = zhVoices.first(where: { isFemaleVoice($0) && isPremiumQuality($0) && $0.language.lowercased().contains("cn") }) {
-      print("[NativeTTS] Priority 5 - Selected Premium Female zh-CN: \(v.name) (\(v.identifier))")
-      return v
-    }
-
-    // Priority 6: Female zh-CN Enhanced (e.g. Tingting / Yushu Enhanced)
-    if let v = zhVoices.first(where: { isFemaleVoice($0) && isEnhancedQuality($0) && $0.language.lowercased().contains("cn") }) {
-      print("[NativeTTS] Priority 6 - Selected Enhanced Female zh-CN: \(v.name) (\(v.identifier))")
-      return v
-    }
-
-    // Priority 7: Natural soft female voices (Yu-shu, Mei-Jia)
-    if let v = zhVoices.first(where: {
-      isFemaleVoice($0) && ($0.identifier.localizedCaseInsensitiveContains("yushu") || $0.identifier.localizedCaseInsensitiveContains("yu-shu") || $0.identifier.localizedCaseInsensitiveContains("meijia") || $0.identifier.localizedCaseInsensitiveContains("mei-jia"))
-    }) {
-      print("[NativeTTS] Priority 7 - Selected Natural Soft Female: \(v.name) (\(v.identifier))")
-      return v
-    }
-
-    // Priority 8: Any Female zh voice
-    if let v = zhVoices.first(where: { isFemaleVoice($0) }) {
-      print("[NativeTTS] Priority 8 - Selected Female fallback: \(v.name) (\(v.identifier))")
-      return v
-    }
-
-    // 9. Fallback: strictly en-US or zh-CN
-    let fallback = AVSpeechSynthesisVoice(language: "en-US") ?? AVSpeechSynthesisVoice(language: "zh-CN")
-    print("[NativeTTS] Final Fallback voice: \(fallback?.name ?? "default")")
-    return fallback
   }
 
   func playAudioFile(filePath: String) -> Bool {
