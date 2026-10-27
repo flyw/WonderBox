@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:record/record.dart';
@@ -21,6 +22,12 @@ class AmbientVoiceService {
   final StreamingParaformerService _paraformerService;
   final AudioRecorder _audioRecorder = AudioRecorder();
 
+  // Configurable thresholds for distance, acoustic energy, and sensitivity
+  double vadThreshold;
+  double minSpeechDuration;
+  double minSilenceDuration;
+  double minRmsThreshold;
+
   sherpa_onnx.VoiceActivityDetector? _vad;
   sherpa_onnx.OnlineStream? _activeStream;
   StreamSubscription<Uint8List>? _recordStreamSub;
@@ -29,7 +36,14 @@ class AmbientVoiceService {
   bool _lastDetectedState = false;
   String _currentLiveText = '';
 
-  AmbientVoiceService(this._vadManager, this._paraformerService);
+  AmbientVoiceService(
+    this._vadManager,
+    this._paraformerService, {
+    this.vadThreshold = 0.50,
+    this.minSpeechDuration = 0.25,
+    this.minSilenceDuration = 0.55,
+    this.minRmsThreshold = 0.020,
+  });
 
   bool get isListening => _isListening;
   bool get isMuted => _isMuted;
@@ -83,9 +97,9 @@ class AmbientVoiceService {
       final vadConfig = sherpa_onnx.VadModelConfig(
         tenVad: sherpa_onnx.TenVadModelConfig(
           model: vadModelPath,
-          threshold: 0.35,
-          minSilenceDuration: 0.55,
-          minSpeechDuration: 0.12,
+          threshold: vadThreshold,
+          minSilenceDuration: minSilenceDuration,
+          minSpeechDuration: minSpeechDuration,
           windowSize: 256,
           maxSpeechDuration: 30.0,
         ),
@@ -127,6 +141,9 @@ class AmbientVoiceService {
         (Uint8List chunk) {
           if (_vad == null || !_isListening || _isMuted) return;
 
+          final newSamples = _pcm16ToFloat32(chunk);
+          final currentRms = _computeRms(newSamples);
+
           // Buffer incoming chunks before speech onset so leading syllables are preserved
           if (_activeStream == null) {
             preSpeechBuffer.add(chunk);
@@ -135,7 +152,9 @@ class AmbientVoiceService {
             }
           }
 
-          final newSamples = _pcm16ToFloat32(chunk);
+          // Check if acoustic energy meets the near-field physical volume threshold
+          final isEnergySufficient = currentRms >= minRmsThreshold;
+
           final totalLength = residualSamples.length + newSamples.length;
           final combined = Float32List(totalLength);
           combined.setAll(0, residualSamples);
@@ -144,7 +163,15 @@ class AmbientVoiceService {
           var offset = 0;
           while (offset + windowSize <= combined.length) {
             final slice = combined.sublist(offset, offset + windowSize);
-            _vad!.acceptWaveform(slice);
+
+            // If speech is already ongoing (_activeStream != null), maintain continuous audio flow.
+            // If idle and acoustic energy is below the near-field threshold (distant sound / background noise),
+            // feed digital silence to TEN VAD so distant speech does not trigger false activation.
+            if (_activeStream != null || isEnergySufficient) {
+              _vad!.acceptWaveform(slice);
+            } else {
+              _vad!.acceptWaveform(Float32List(windowSize));
+            }
             offset += windowSize;
           }
 
@@ -158,6 +185,9 @@ class AmbientVoiceService {
           if (detected != _lastDetectedState) {
             _lastDetectedState = detected;
             onSpeechDetectedChanged?.call(detected);
+            if (detected) {
+              debugPrint('[AmbientVoiceService] Speech onset detected! RMS: ${currentRms.toStringAsFixed(4)} (gate: $minRmsThreshold), VAD threshold: $vadThreshold, minSpeech: $minSpeechDuration');
+            }
           }
 
           if (detected && _activeStream == null) {
@@ -246,6 +276,16 @@ class AmbientVoiceService {
       samples[i] = int16 / 32768.0;
     }
     return samples;
+  }
+
+  double _computeRms(Float32List samples) {
+    if (samples.isEmpty) return 0.0;
+    var sum = 0.0;
+    for (var i = 0; i < samples.length; i++) {
+      final s = samples[i];
+      sum += s * s;
+    }
+    return math.sqrt(sum / samples.length);
   }
 
   void dispose() {
