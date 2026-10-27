@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/storage/preferences_provider.dart';
 import '../../../../core/storage/storage_keys.dart';
 import '../../../voice/data/services/qwen3_tts_model_manager.dart';
+import '../../../voice/data/services/qwen3_tts_service.dart';
 import '../../data/services/tts_service.dart';
 
 class TtsState {
@@ -19,6 +20,9 @@ class TtsState {
   final double rate;
   final double pitch;
   final List<Map<String, dynamic>> availableVoices;
+  final String? customEndpoint;
+  final bool? isServerConnected;
+  final String? lastErrorMessage;
 
   const TtsState({
     this.isSpeaking = false,
@@ -34,6 +38,9 @@ class TtsState {
     this.rate = 0.5,
     this.pitch = 1.0,
     this.availableVoices = const [],
+    this.customEndpoint,
+    this.isServerConnected,
+    this.lastErrorMessage,
   });
 
   TtsState copyWith({
@@ -50,6 +57,9 @@ class TtsState {
     double? rate,
     double? pitch,
     List<Map<String, dynamic>>? availableVoices,
+    String? customEndpoint,
+    bool? isServerConnected,
+    String? lastErrorMessage,
   }) {
     return TtsState(
       isSpeaking: isSpeaking ?? this.isSpeaking,
@@ -65,6 +75,9 @@ class TtsState {
       rate: rate ?? this.rate,
       pitch: pitch ?? this.pitch,
       availableVoices: availableVoices ?? this.availableVoices,
+      customEndpoint: customEndpoint ?? this.customEndpoint,
+      isServerConnected: isServerConnected ?? this.isServerConnected,
+      lastErrorMessage: lastErrorMessage ?? this.lastErrorMessage,
     );
   }
 }
@@ -94,12 +107,14 @@ class TtsNotifier extends Notifier<TtsState> {
     final savedRate = _prefs.getDouble(StorageKeys.ttsRate) ?? 0.5;
     final savedPitch = _prefs.getDouble(StorageKeys.ttsPitch) ?? 1.0;
     final savedAutoSpeak = _prefs.getBool(StorageKeys.ttsAutoSpeak) ?? true;
+    final savedCustomEndpoint = _prefs.getString(StorageKeys.qwen3CustomEndpoint);
 
     // Check Qwen3 model & load available iOS voices asynchronously
     Future.microtask(() {
       if (ref.mounted) {
         checkQwen3ModelStatus();
         loadAvailableVoices();
+        testServerConnection(savedCustomEndpoint);
       }
     });
 
@@ -111,6 +126,7 @@ class TtsNotifier extends Notifier<TtsState> {
       rate: savedRate,
       pitch: savedPitch,
       isAutoSpeakEnabled: savedAutoSpeak,
+      customEndpoint: savedCustomEndpoint,
     );
   }
 
@@ -156,6 +172,34 @@ class TtsNotifier extends Notifier<TtsState> {
   void setQwen3Voice(String voice) {
     _prefs.setString(StorageKeys.qwen3Voice, voice);
     state = state.copyWith(qwen3Voice: voice);
+  }
+
+  void setCustomEndpoint(String endpoint) {
+    final trimmed = endpoint.trim();
+    if (trimmed.isEmpty) {
+      _prefs.remove(StorageKeys.qwen3CustomEndpoint);
+      state = state.copyWith(customEndpoint: null);
+    } else {
+      _prefs.setString(StorageKeys.qwen3CustomEndpoint, trimmed);
+      state = state.copyWith(customEndpoint: trimmed);
+    }
+    testServerConnection(trimmed);
+  }
+
+  Future<void> testServerConnection([String? endpoint]) async {
+    final target = endpoint ?? state.customEndpoint ?? 'http://127.0.0.1:58588/health';
+    try {
+      final qwen3Service = ref.read(qwen3TtsServiceProvider);
+      final res = await qwen3Service.testConnection(target);
+      if (!ref.mounted) return;
+      state = state.copyWith(
+        isServerConnected: res.ok,
+        lastErrorMessage: res.ok ? null : res.message,
+      );
+    } catch (_) {
+      if (!ref.mounted) return;
+      state = state.copyWith(isServerConnected: false);
+    }
   }
 
   Future<void> loadAvailableVoices() async {
@@ -323,7 +367,7 @@ class TtsNotifier extends Notifier<TtsState> {
       state = state.copyWith(isSpeaking: false, currentSpeakingMessageId: null);
       return;
     }
-    state = state.copyWith(isSpeaking: true, currentSpeakingMessageId: messageId);
+    state = state.copyWith(isSpeaking: true, currentSpeakingMessageId: messageId, lastErrorMessage: null);
     await _service.speak(
       text,
       engine: state.engine,
@@ -331,12 +375,16 @@ class TtsNotifier extends Notifier<TtsState> {
       rate: state.rate,
       pitch: state.pitch,
       voiceIdentifier: state.selectedVoiceId,
+      customBaseUrl: state.customEndpoint,
+      onError: (err) {
+        state = state.copyWith(lastErrorMessage: err);
+      },
     );
   }
 
   Future<void> autoSpeak(String text) async {
     if (!state.isAutoSpeakEnabled) return;
-    state = state.copyWith(isSpeaking: true);
+    state = state.copyWith(isSpeaking: true, lastErrorMessage: null);
     await _service.speak(
       text,
       engine: state.engine,
@@ -344,6 +392,10 @@ class TtsNotifier extends Notifier<TtsState> {
       rate: state.rate,
       pitch: state.pitch,
       voiceIdentifier: state.selectedVoiceId,
+      customBaseUrl: state.customEndpoint,
+      onError: (err) {
+        state = state.copyWith(lastErrorMessage: err);
+      },
     );
   }
 

@@ -2,6 +2,7 @@ class StorageKeys {
   // TTS Settings
   static const String ttsEngine = 'tts_engine';
   static const String qwen3Voice = 'qwen3_voice';
+  static const String qwen3CustomEndpoint = 'qwen3_custom_endpoint';
   static const String ttsVoiceId = 'tts_selected_voice_id';
   static const String ttsVoiceName = 'tts_selected_voice_name';
   static const String ttsRate = 'tts_rate';

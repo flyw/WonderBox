@@ -80,7 +80,8 @@ class TtsService {
     return cleaned.trim();
   }
 
-  /// Speaks the provided text via Qwen3-TTS 0.6B Q4 (or Apple system fallback)
+  /// Speaks the provided text via Qwen3-TTS 0.6B Q4 (or Apple system TTS when explicitly selected).
+  /// NEVER silently falls back to Apple robotic voice when Qwen3-TTS is active.
   Future<void> speak(
     String text, {
     TtsEngine engine = TtsEngine.qwen3Tts,
@@ -89,6 +90,8 @@ class TtsService {
     double pitch = 1.0,
     String lang = 'zh-CN',
     String? voiceIdentifier,
+    String? customBaseUrl,
+    void Function(String error)? onError,
   }) async {
     final clean = cleanMarkdown(text);
     if (clean.isEmpty) return;
@@ -101,6 +104,7 @@ class TtsService {
           clean,
           voice: qwen3Voice,
           speed: speed,
+          customBaseUrl: customBaseUrl,
         );
         if (wavPath != null) {
           final success = await playAudioFile(wavPath);
@@ -108,11 +112,22 @@ class TtsService {
             return;
           }
         }
+        // If we reach here, Qwen3-TTS failed. DO NOT silently fall back to Apple TTS!
+        onSpeakingChanged?.call(false);
+        const errMsg = 'Qwen3-TTS 合成暂未成功，已保持当前设置（已保护性阻止切换至苹果原生机械音）';
+        debugPrint('[TtsService] $errMsg');
+        onError?.call(errMsg);
+        return;
       } catch (e) {
-        debugPrint('[TtsService] Qwen3-TTS synthesis failed, falling back to Apple TTS: $e');
+        onSpeakingChanged?.call(false);
+        final errMsg = 'Qwen3-TTS 合成异常: $e';
+        debugPrint('[TtsService] $errMsg');
+        onError?.call(errMsg);
+        return;
       }
     }
 
+    // Strictly Apple System TTS path (only invoked when engine == TtsEngine.systemApple)
     try {
       await _channel.invokeMethod('speak', {
         'text': clean,
@@ -122,8 +137,9 @@ class TtsService {
         'voiceIdentifier': voiceIdentifier,
       });
     } catch (e) {
-      debugPrint('[TtsService] Speak error: $e');
+      debugPrint('[TtsService] Apple Speak error: $e');
       onSpeakingChanged?.call(false);
+      onError?.call('苹果系统语音播放失败: $e');
     }
   }
 

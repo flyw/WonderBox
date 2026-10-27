@@ -282,6 +282,9 @@ class VadTuningSheet extends ConsumerWidget {
                         onChanged: (val) {
                           notifier.setDistanceRatio(val);
                         },
+                        onChangeEnd: (val) {
+                          notifier.setDistanceRatio(val);
+                        },
                       ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -396,6 +399,9 @@ class VadTuningSheet extends ConsumerWidget {
                         onChanged: (val) {
                           notifier.updateVadConfig(minRmsThreshold: val);
                         },
+                        onChangeEnd: (val) {
+                          notifier.updateVadConfig(minRmsThreshold: val);
+                        },
                       ),
                       Padding(
                         padding: const EdgeInsets.only(left: 4, bottom: 8),
@@ -426,6 +432,9 @@ class VadTuningSheet extends ConsumerWidget {
                         onChanged: (val) {
                           notifier.updateVadConfig(vadThreshold: val);
                         },
+                        onChangeEnd: (val) {
+                          notifier.updateVadConfig(vadThreshold: val);
+                        },
                       ),
                       Padding(
                         padding: const EdgeInsets.only(left: 4, bottom: 8),
@@ -454,6 +463,9 @@ class VadTuningSheet extends ConsumerWidget {
                         max: 0.40,
                         divisions: 6,
                         onChanged: (val) {
+                          notifier.updateVadConfig(minSpeechDuration: val);
+                        },
+                        onChangeEnd: (val) {
                           notifier.updateVadConfig(minSpeechDuration: val);
                         },
                       ),

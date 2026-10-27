@@ -13,7 +13,7 @@ void main() {
 
   group('Qwen3-TTS 0.6B Q4 Integration Tests', () {
     test('Qwen3TtsModelManager has correct model file name', () {
-      expect(Qwen3TtsModelManager.modelFileName, 'Qwen3-TTS-12Hz-0.6B-CustomVoice.Q4_K_M.gguf');
+      expect(Qwen3TtsModelManager.modelFileName, 'qwen3-tts-0.6b-customvoice-q4_k_m.gguf');
     });
 
     test('Qwen3TtsService provides all 4 standard neural voices', () {
@@ -43,6 +43,7 @@ void main() {
       SharedPreferences.setMockInitialValues({
         StorageKeys.ttsEngine: TtsEngine.qwen3Tts.name,
         StorageKeys.qwen3Voice: 'serena',
+        StorageKeys.qwen3CustomEndpoint: 'http://192.168.1.100:58589/v1/audio/speech',
       });
       final prefs = await SharedPreferences.getInstance();
 
@@ -56,6 +57,25 @@ void main() {
       final state = container.read(ttsControllerProvider);
       expect(state.engine, TtsEngine.qwen3Tts);
       expect(state.qwen3Voice, 'serena');
+      expect(state.customEndpoint, 'http://192.168.1.100:58589/v1/audio/speech');
+    });
+
+    test('TtsNotifier writes custom endpoint to SharedPreferences', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+
+      final container = ProviderContainer(
+        overrides: [
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final notifier = container.read(ttsControllerProvider.notifier);
+      notifier.setCustomEndpoint('http://10.0.0.5:58589/v1/audio/speech');
+
+      expect(prefs.getString(StorageKeys.qwen3CustomEndpoint), 'http://10.0.0.5:58589/v1/audio/speech');
+      expect(container.read(ttsControllerProvider).customEndpoint, 'http://10.0.0.5:58589/v1/audio/speech');
     });
 
     test('TtsNotifier writes updated engine and voice to SharedPreferences', () async {

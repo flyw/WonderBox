@@ -47,6 +47,127 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
     return isEn && is4;
   }
 
+  void _showEndpointConfigDialog(BuildContext context) {
+    final ttsState = ref.read(ttsControllerProvider);
+    final notifier = ref.read(ttsControllerProvider.notifier);
+    final controller = TextEditingController(
+      text: ttsState.customEndpoint ?? '',
+    );
+    String? statusMsg;
+    bool isTesting = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.hub_rounded, size: 20, color: Colors.deepPurple),
+                SizedBox(width: 8),
+                Text('配置 Qwen3-TTS 服务地址', style: TextStyle(fontSize: 16)),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '支持本地端侧端口（默认 127.0.0.1:58588）或同局域网 Mac/PC 部署的 speech-server 服务：',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  decoration: InputDecoration(
+                    labelText: '服务请求 URL',
+                    hintText: 'http://127.0.0.1:58588/v1/audio/speech',
+                    prefixIcon: const Icon(Icons.link, size: 18),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  style: const TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    OutlinedButton.icon(
+                      icon: isTesting
+                          ? const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.network_check, size: 14),
+                      label: const Text('测试连接', style: TextStyle(fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      onPressed: isTesting
+                          ? null
+                          : () async {
+                              setDialogState(() {
+                                isTesting = true;
+                                statusMsg = null;
+                              });
+                              final target = controller.text.trim().isEmpty
+                                  ? 'http://127.0.0.1:58588/v1/audio/speech'
+                                  : controller.text.trim();
+                              final qwen3Service = ref.read(qwen3TtsServiceProvider);
+                              final res = await qwen3Service.testConnection(target);
+                              setDialogState(() {
+                                isTesting = false;
+                                statusMsg = res.ok
+                                    ? '✅ ${res.message}'
+                                    : '❌ ${res.message}';
+                              });
+                            },
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      child: const Text('恢复默认', style: TextStyle(fontSize: 12)),
+                      onPressed: () {
+                        controller.clear();
+                        setDialogState(() {
+                          statusMsg = '已重置为端侧默认服务';
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                if (statusMsg != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    statusMsg!,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: statusMsg!.startsWith('✅') ? Colors.green : Colors.red,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  notifier.setCustomEndpoint(controller.text.trim());
+                  Navigator.of(ctx).pop();
+                },
+                child: const Text('保存生效'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   void _previewVoice(String voiceId, String voiceName, String lang) {
     final ttsState = ref.read(ttsControllerProvider);
     final service = ref.read(ttsServiceProvider);
@@ -75,6 +196,24 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
       qwen3Voice: voiceId,
       rate: ttsState.rate,
       pitch: ttsState.pitch,
+      customBaseUrl: ttsState.customEndpoint,
+      onError: (err) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Expanded(child: Text(err, style: const TextStyle(fontSize: 12))),
+              ],
+            ),
+            backgroundColor: Colors.deepPurple.shade800,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      },
     );
   }
 
@@ -238,6 +377,9 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
                         onChanged: (val) {
                           notifier.setRate(val);
                         },
+                        onChangeEnd: (val) {
+                          notifier.setRate(val);
+                        },
                       ),
                       const SizedBox(height: 8),
                       Row(
@@ -267,6 +409,9 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
                         max: 1.3,
                         divisions: 12,
                         onChanged: (val) {
+                          notifier.setPitch(val);
+                        },
+                        onChangeEnd: (val) {
                           notifier.setPitch(val);
                         },
                       ),
@@ -356,7 +501,7 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
                             Row(
                               children: [
                                 Text(
-                                  ttsState.qwen3DownloadStatus ?? '模型文件大小约 418 MB',
+                                  ttsState.qwen3DownloadStatus ?? '模型大小约 378 MB (4-bit Q4)',
                                   style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
                                 ),
                                 const Spacer(),
@@ -375,6 +520,48 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
                             ),
                           ],
                         ],
+                        const SizedBox(height: 10),
+                        const Divider(height: 1),
+                        const SizedBox(height: 8),
+
+                        // Endpoint & Service status row
+                        Row(
+                          children: [
+                            Icon(
+                              ttsState.isServerConnected == true
+                                  ? Icons.check_circle_rounded
+                                  : (ttsState.isServerConnected == false
+                                      ? Icons.cancel_rounded
+                                      : Icons.radio_button_unchecked),
+                              size: 14,
+                              color: ttsState.isServerConnected == true
+                                  ? Colors.green
+                                  : (ttsState.isServerConnected == false ? Colors.orange : Colors.grey),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                ttsState.customEndpoint != null
+                                    ? '自定义服务: ${ttsState.customEndpoint}'
+                                    : '端侧服务: 127.0.0.1:58588',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            TextButton.icon(
+                              icon: const Icon(Icons.settings_ethernet, size: 13),
+                              label: const Text('配置/测试', style: TextStyle(fontSize: 11)),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(horizontal: 6),
+                              ),
+                              onPressed: () => _showEndpointConfigDialog(context),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),

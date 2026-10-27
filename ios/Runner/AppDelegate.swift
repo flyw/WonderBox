@@ -188,6 +188,11 @@ import AVFoundation
       return
     }
 
+    if firstLine.contains("/v1/audio/speech") || firstLine.contains("/audio/speech") {
+      handleAudioSpeech(jsonString: jsonBody, connection: connection)
+      return
+    }
+
     // Default fallback
     let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
     connection.send(content: resp.data(using: .utf8), contentContext: .finalMessage, isComplete: true, completion: .contentProcessed({ _ in }))
@@ -363,6 +368,40 @@ import AVFoundation
           ctx.sendChunk(token: str)
         }
       }, userPtr)
+    }
+  }
+
+  private func handleAudioSpeech(jsonString: String, connection: NWConnection) {
+    guard let jsonData = jsonString.data(using: .utf8),
+          let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+      let resp = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n"
+      connection.send(content: resp.data(using: .utf8), completion: .contentProcessed({ _ in connection.cancel() }))
+      return
+    }
+
+    let input = json["input"] as? String ?? ""
+    let voice = json["voice"] as? String ?? "vivian"
+    let speed = json["speed"] as? Double ?? 1.0
+
+    print("[OnDeviceTTS] 🎙️ Received /v1/audio/speech: '\(input.prefix(30))...' voice=\(voice) speed=\(speed)")
+
+    let fileManager = FileManager.default
+    var modelPath: String? = nil
+    if let docDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+      let candidate = docDir.appendingPathComponent("models/qwen3_tts_0.6b/qwen3-tts-0.6b-customvoice-q4_k_m.gguf").path
+      if fileManager.fileExists(atPath: candidate) {
+        modelPath = candidate
+      }
+    }
+
+    if let path = modelPath {
+      print("[OnDeviceTTS] Found local Qwen3-TTS model: \(path)")
+      let body = "{\"status\":\"model_ready\",\"model\":\"qwen3-tts-0.6b-q4\",\"voice\":\"\(voice)\",\"path\":\"\(path)\"}"
+      sendHTTPResponse(connection: connection, statusCode: 200, contentType: "application/json", body: body)
+    } else {
+      print("[OnDeviceTTS] Local Qwen3-TTS model not found on disk")
+      let body = "{\"error\":\"Qwen3-TTS 0.6B Q4 本地模型尚未下载，请在设置中下载模型或配置局域网服务地址\",\"code\":\"model_not_found\"}"
+      sendHTTPResponse(connection: connection, statusCode: 503, contentType: "application/json", body: body)
     }
   }
 

@@ -75,22 +75,71 @@ class Qwen3TtsService {
 
   Qwen3TtsService(this.modelManager);
 
-  /// Checks if a local Qwen3-TTS inference endpoint is active
-  Future<bool> isServiceAvailable() async {
-    for (final url in [
+  /// Checks if a local or custom Qwen3-TTS inference endpoint is active
+  Future<bool> isServiceAvailable({String? customBaseUrl}) async {
+    final urls = [
+      if (customBaseUrl != null && customBaseUrl.isNotEmpty) customBaseUrl,
       'http://127.0.0.1:$defaultPort/health',
       'http://127.0.0.1:$speechCppPort/health',
-    ]) {
+    ];
+    for (final url in urls) {
       try {
         final client = HttpClient()
           ..connectionTimeout = const Duration(milliseconds: 1500);
         final req = await client.getUrl(Uri.parse(url));
         final resp = await req.close();
         client.close();
-        if (resp.statusCode == 200) return true;
+        if (resp.statusCode == 200 || resp.statusCode == 405 || resp.statusCode == 404) {
+          return true;
+        }
       } catch (_) {}
     }
     return false;
+  }
+
+  /// Actively tests connectivity to a given endpoint and returns diagnostic status & latency
+  Future<({bool ok, String message, int latencyMs})> testConnection(String endpoint) async {
+    final trimmed = endpoint.trim();
+    if (trimmed.isEmpty) {
+      return (ok: false, message: '地址不能为空', latencyMs: 0);
+    }
+    final stopwatch = Stopwatch()..start();
+    try {
+      final uri = Uri.parse(trimmed);
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+      // Try GET or HEAD first
+      final req = await client.openUrl('GET', uri);
+      final resp = await req.close();
+      client.close();
+      stopwatch.stop();
+
+      // Any HTTP response code other than connection error indicates server is alive
+      if (resp.statusCode == 200 || resp.statusCode == 400 || resp.statusCode == 405) {
+        return (
+          ok: true,
+          message: '已连接 (HTTP ${resp.statusCode}, ${stopwatch.elapsedMilliseconds}ms)',
+          latencyMs: stopwatch.elapsedMilliseconds,
+        );
+      } else {
+        return (
+          ok: false,
+          message: '服务返回异常状态码: HTTP ${resp.statusCode}',
+          latencyMs: stopwatch.elapsedMilliseconds,
+        );
+      }
+    } catch (e) {
+      stopwatch.stop();
+      final errStr = e.toString();
+      String friendly = '无法连接服务';
+      if (errStr.contains('Connection refused')) {
+        friendly = '连接被拒绝 (端口未监听或服务未启动)';
+      } else if (errStr.contains('timed out') || errStr.contains('Timeout')) {
+        friendly = '连接超时 (请检查 IP 与局域网状态)';
+      } else if (errStr.contains('Failed host lookup')) {
+        friendly = '无法解析主机名';
+      }
+      return (ok: false, message: friendly, latencyMs: stopwatch.elapsedMilliseconds);
+    }
   }
 
   /// Synthesizes text to a local WAV audio file using Qwen3-TTS 0.6B Q4

@@ -102,6 +102,9 @@ class VadDistanceBar extends ConsumerWidget {
                 onChanged: (val) {
                   notifier.setDistanceRatio(val);
                 },
+                onChangeEnd: (val) {
+                  notifier.setDistanceRatio(val);
+                },
               ),
             ),
           ),

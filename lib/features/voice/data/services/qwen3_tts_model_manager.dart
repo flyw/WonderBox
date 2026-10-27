@@ -8,11 +8,11 @@ final qwen3TtsModelManagerProvider = Provider<Qwen3TtsModelManager>((ref) {
 });
 
 class Qwen3TtsModelManager {
-  static const String modelFileName = 'Qwen3-TTS-12Hz-0.6B-CustomVoice.Q4_K_M.gguf';
+  static const String modelFileName = 'qwen3-tts-0.6b-customvoice-q4_k_m.gguf';
 
   static const List<String> _mirrors = [
-    'https://hf-mirror.com/BricksDisplay/Qwen3-TTS-12Hz-0.6B-CustomVoice-GGUF/resolve/main/$modelFileName',
-    'https://huggingface.co/BricksDisplay/Qwen3-TTS-12Hz-0.6B-CustomVoice-GGUF/resolve/main/$modelFileName',
+    'https://hf-mirror.com/BricksDisplay/Qwen3-TTS-12Hz-0.6B-CustomVoice-GGUF/resolve/main/qwen3-tts-0.6b-customvoice-q4_k_m.gguf',
+    'https://huggingface.co/BricksDisplay/Qwen3-TTS-12Hz-0.6B-CustomVoice-GGUF/resolve/main/qwen3-tts-0.6b-customvoice-q4_k_m.gguf',
     'https://hf-mirror.com/mradermacher/Qwen3-TTS-12Hz-0.6B-Base-GGUF/resolve/main/Qwen3-TTS-12Hz-0.6B-Base.Q4_K_M.gguf',
     'https://huggingface.co/mradermacher/Qwen3-TTS-12Hz-0.6B-Base-GGUF/resolve/main/Qwen3-TTS-12Hz-0.6B-Base.Q4_K_M.gguf',
   ];
