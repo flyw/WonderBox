@@ -104,6 +104,7 @@ class TtsService {
           clean,
           voice: qwen3Voice,
           speed: speed,
+          language: 'Auto',
           customBaseUrl: customBaseUrl,
         );
         if (wavPath != null) {

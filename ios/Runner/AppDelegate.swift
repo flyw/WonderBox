@@ -382,8 +382,9 @@ import AVFoundation
     let input = json["input"] as? String ?? ""
     let voice = json["voice"] as? String ?? "vivian"
     let speed = json["speed"] as? Double ?? 1.0
+    let language = json["language"] as? String ?? "Auto"
 
-    print("[OnDeviceTTS] 🎙️ Received /v1/audio/speech: '\(input.prefix(30))...' voice=\(voice) speed=\(speed)")
+    print("[OnDeviceTTS] 🎙️ Received /v1/audio/speech: '\(input.prefix(30))...' voice=\(voice) speed=\(speed) lang=\(language)")
 
     let fileManager = FileManager.default
     var modelPath: String? = nil

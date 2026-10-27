@@ -147,6 +147,7 @@ class Qwen3TtsService {
     String text, {
     String voice = 'vivian',
     double speed = 1.0,
+    String language = 'Auto',
     String? customBaseUrl,
   }) async {
     final trimmed = text.trim();
@@ -167,6 +168,7 @@ class Qwen3TtsService {
       'voice': voice,
       'response_format': 'wav',
       'speed': speed,
+      'language': language,
     };
 
     for (final endpoint in endpoints) {
