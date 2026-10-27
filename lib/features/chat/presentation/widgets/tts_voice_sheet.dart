@@ -20,7 +20,7 @@ class TtsVoiceSheet extends ConsumerStatefulWidget {
 }
 
 class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
-  String _selectedFilter = 'all'; // 'all', 'en', 'zh', 'other'
+  String _selectedFilter = 'all'; // 'all', 'en', 'zh'
 
   @override
   void initState() {
@@ -33,8 +33,8 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
   bool _isSiriVoice4(Map<String, dynamic> v) {
     final name = (v['name'] as String? ?? '').toLowerCase();
     final id = (v['identifier'] as String? ?? '').toLowerCase();
-    final lang = (v['language'] as String? ?? '').toLowerCase();
-    final isEn = lang.startsWith('en');
+    final lang = (v['language'] as String? ?? '').toLowerCase().replaceAll('_', '-');
+    final isEn = lang == 'en-us' || lang.startsWith('en-us');
     final is4 = name.contains('voice 4') ||
         name.contains('声音 4') ||
         name.contains('voice4') ||
@@ -49,7 +49,8 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
   void _previewVoice(String voiceId, String voiceName, String lang) {
     final ttsState = ref.read(ttsControllerProvider);
     final service = ref.read(ttsServiceProvider);
-    final isEn = lang.toLowerCase().startsWith('en');
+    final isEn = lang.toLowerCase().replaceAll('_', '-').startsWith('en-us') ||
+        lang.toLowerCase().startsWith('en');
     final text = isEn
         ? 'Hello, I am WonderBox AI assistant, powered by Siri American voice. Nice to meet you!'
         : '你好，我是 WonderBox 智能伴听助手，很高兴为你服务。';
@@ -70,18 +71,13 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
     final allVoices = ttsState.availableVoices;
 
     final enVoices = allVoices.where((v) {
-      final lang = (v['language'] as String? ?? '').toLowerCase();
-      return lang.startsWith('en');
+      final lang = (v['language'] as String? ?? '').toLowerCase().replaceAll('_', '-');
+      return lang == 'en-us' || lang.startsWith('en-us');
     }).toList();
 
     final zhVoices = allVoices.where((v) {
-      final lang = (v['language'] as String? ?? '').toLowerCase();
-      return lang.startsWith('zh');
-    }).toList();
-
-    final otherVoices = allVoices.where((v) {
-      final lang = (v['language'] as String? ?? '').toLowerCase();
-      return !lang.startsWith('en') && !lang.startsWith('zh');
+      final lang = (v['language'] as String? ?? '').toLowerCase().replaceAll('_', '-');
+      return lang == 'zh-cn' || lang.startsWith('zh-cn');
     }).toList();
 
     List<Map<String, dynamic>> displayedVoices;
@@ -89,8 +85,6 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
       displayedVoices = enVoices;
     } else if (_selectedFilter == 'zh') {
       displayedVoices = zhVoices;
-    } else if (_selectedFilter == 'other') {
-      displayedVoices = otherVoices;
     } else {
       displayedVoices = allVoices;
     }
@@ -146,7 +140,7 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
                         ),
                       ),
                       Text(
-                        '支持 Siri Voice 4 (美国口音) · 智能双语朗读',
+                        '仅保留 US 英语 (en-US) 与 CN 中文 (zh-CN) · Siri Voice 4 优先',
                         style: TextStyle(
                           fontSize: 11,
                           color: theme.colorScheme.onSurfaceVariant,
@@ -351,7 +345,7 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
                 ),
                 const SizedBox(height: 6),
 
-                // Filter chips: [ 全部 | 🇺🇸 英语 | 🇨🇳 中文 | 🌐 其他 ]
+                // Filter chips: [ 全部 | 🇺🇸 US 英语 | 🇨🇳 CN 中文 ]
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -362,29 +356,20 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
                         selected: _selectedFilter == 'all',
                         onSelected: () => setState(() => _selectedFilter = 'all'),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 8),
                       _buildFilterChip(
                         context,
-                        label: '🇺🇸 英语 (${enVoices.length})',
+                        label: '🇺🇸 US 英语 (${enVoices.length})',
                         selected: _selectedFilter == 'en',
                         onSelected: () => setState(() => _selectedFilter = 'en'),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 8),
                       _buildFilterChip(
                         context,
-                        label: '🇨🇳 中文 (${zhVoices.length})',
+                        label: '🇨🇳 CN 中文 (${zhVoices.length})',
                         selected: _selectedFilter == 'zh',
                         onSelected: () => setState(() => _selectedFilter = 'zh'),
                       ),
-                      if (otherVoices.isNotEmpty) ...[
-                        const SizedBox(width: 6),
-                        _buildFilterChip(
-                          context,
-                          label: '🌐 其他 (${otherVoices.length})',
-                          selected: _selectedFilter == 'other',
-                          onSelected: () => setState(() => _selectedFilter = 'other'),
-                        ),
-                      ],
                     ],
                   ),
                 ),

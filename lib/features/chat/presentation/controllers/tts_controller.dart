@@ -65,13 +65,19 @@ class TtsNotifier extends Notifier<TtsState> {
   }
 
   Future<void> loadAvailableVoices() async {
-    final voices = await _service.getAvailableVoices();
+    final rawVoices = await _service.getAvailableVoices();
+
+    // Filter strictly for US English (en-US) and CN Chinese (zh-CN)
+    final voices = rawVoices.where((v) {
+      final lang = (v['language'] as String? ?? '').toLowerCase().replaceAll('_', '-');
+      return lang == 'en-us' || lang.startsWith('en-us') || lang == 'zh-cn' || lang.startsWith('zh-cn');
+    }).toList();
 
     bool isSiriVoice4(Map<String, dynamic> v) {
       final name = (v['name'] as String? ?? '').toLowerCase();
       final id = (v['identifier'] as String? ?? '').toLowerCase();
-      final lang = (v['language'] as String? ?? '').toLowerCase();
-      final isEn = lang.startsWith('en');
+      final lang = (v['language'] as String? ?? '').toLowerCase().replaceAll('_', '-');
+      final isEn = lang == 'en-us' || lang.startsWith('en-us');
       final is4 = name.contains('voice 4') ||
           name.contains('声音 4') ||
           name.contains('voice4') ||
@@ -109,8 +115,8 @@ class TtsNotifier extends Notifier<TtsState> {
     }
 
     bool isEn(Map<String, dynamic> v) {
-      final lang = (v['language'] as String? ?? '').toLowerCase();
-      return lang.startsWith('en');
+      final lang = (v['language'] as String? ?? '').toLowerCase().replaceAll('_', '-');
+      return lang == 'en-us' || lang.startsWith('en-us');
     }
 
     int getQuality(Map<String, dynamic> v) {
