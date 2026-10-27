@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../data/services/tts_service.dart';
 import '../controllers/tts_controller.dart';
 import 'tts_voice_sheet.dart';
 
@@ -11,17 +12,24 @@ class TtsTogglePill extends ConsumerWidget {
     final ttsState = ref.watch(ttsControllerProvider);
     final isAuto = ttsState.isAutoSpeakEnabled;
     final isSpeaking = ttsState.isSpeaking;
+    final isQwen3 = ttsState.engine == TtsEngine.qwen3Tts;
 
-    final voiceName = ttsState.selectedVoiceName ?? 'Siri';
-    String shortName = 'Siri';
-    if (voiceName.contains('Voice 4') || voiceName.contains('声音 4') || (voiceName.contains('Siri') && voiceName.contains('4'))) {
-      shortName = 'Siri 4';
-    } else if (voiceName.contains('Siri')) {
-      shortName = 'Siri';
-    } else if (voiceName.length > 4) {
-      shortName = voiceName.substring(0, 4);
+    String shortName;
+    if (isQwen3) {
+      final v = ttsState.qwen3Voice;
+      final cap = v.isNotEmpty ? '${v[0].toUpperCase()}${v.substring(1)}' : 'Qwen3';
+      shortName = 'Qwen3·$cap';
     } else {
-      shortName = voiceName;
+      final voiceName = ttsState.selectedVoiceName ?? 'Siri';
+      if (voiceName.contains('Voice 4') || voiceName.contains('声音 4') || (voiceName.contains('Siri') && voiceName.contains('4'))) {
+        shortName = 'Siri 4';
+      } else if (voiceName.contains('Siri')) {
+        shortName = 'Siri';
+      } else if (voiceName.length > 4) {
+        shortName = voiceName.substring(0, 4);
+      } else {
+        shortName = voiceName;
+      }
     }
 
     return GestureDetector(
@@ -30,11 +38,13 @@ class TtsTogglePill extends ConsumerWidget {
         avatar: Icon(
           isSpeaking
               ? Icons.volume_up
-              : (isAuto ? Icons.record_voice_over : Icons.voice_over_off),
+              : (isAuto
+                  ? (isQwen3 ? Icons.auto_awesome : Icons.record_voice_over)
+                  : Icons.voice_over_off),
           size: 14,
           color: isSpeaking
               ? Colors.orangeAccent
-              : (isAuto ? Colors.green.shade400 : Colors.grey),
+              : (isAuto ? (isQwen3 ? Colors.deepPurple.shade300 : Colors.green.shade400) : Colors.grey),
         ),
         label: Row(
           mainAxisSize: MainAxisSize.min,
@@ -48,7 +58,7 @@ class TtsTogglePill extends ConsumerWidget {
                 fontWeight: FontWeight.w600,
                 color: isSpeaking
                     ? Colors.orangeAccent
-                    : (isAuto ? Colors.green.shade400 : Colors.grey),
+                    : (isAuto ? (isQwen3 ? Colors.deepPurple.shade300 : Colors.green.shade400) : Colors.grey),
               ),
             ),
             const SizedBox(width: 2),
@@ -57,7 +67,7 @@ class TtsTogglePill extends ConsumerWidget {
               child: Icon(
                 Icons.tune,
                 size: 12,
-                color: isAuto ? Colors.green.shade400 : Colors.grey,
+                color: isAuto ? (isQwen3 ? Colors.deepPurple.shade300 : Colors.green.shade400) : Colors.grey,
               ),
             ),
           ],
@@ -67,11 +77,15 @@ class TtsTogglePill extends ConsumerWidget {
         side: BorderSide(
           color: isSpeaking
               ? Colors.orangeAccent.withValues(alpha: 0.5)
-              : (isAuto ? Colors.green.withValues(alpha: 0.4) : Colors.grey.withValues(alpha: 0.3)),
+              : (isAuto
+                  ? (isQwen3 ? Colors.deepPurple.withValues(alpha: 0.4) : Colors.green.withValues(alpha: 0.4))
+                  : Colors.grey.withValues(alpha: 0.3)),
         ),
         backgroundColor: isSpeaking
-            ? Colors.orangeAccent.withValues(alpha: 0.15)
-            : (isAuto ? Colors.green.withValues(alpha: 0.12) : Colors.grey.withValues(alpha: 0.08)),
+          ? Colors.orangeAccent.withValues(alpha: 0.15)
+          : (isAuto
+              ? (isQwen3 ? Colors.deepPurple.withValues(alpha: 0.15) : Colors.green.withValues(alpha: 0.12))
+              : Colors.grey.withValues(alpha: 0.08)),
         onPressed: () {
           ref.read(ttsControllerProvider.notifier).toggleAutoSpeak();
         },

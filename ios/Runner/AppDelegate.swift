@@ -460,11 +460,12 @@ import AVFoundation
   }
 }
 
-// MARK: - Native iOS AVSpeechSynthesizer TTS Manager
-class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
+// MARK: - Native iOS AVSpeechSynthesizer & Neural TTS Player
+class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
   static let shared = NativeTtsManager()
 
   private let synthesizer = AVSpeechSynthesizer()
+  private var audioPlayer: AVAudioPlayer?
   private var channel: FlutterMethodChannel?
 
   override init() {
@@ -487,6 +488,19 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
         let voiceId = args?["voiceIdentifier"] as? String
         self.speak(text: text, rate: Float(rate), pitch: Float(pitch), language: lang, voiceIdentifier: voiceId)
         result(true)
+      case "playAudioFile":
+        let args = call.arguments as? [String: Any]
+        let filePath = args?["filePath"] as? String ?? ""
+        let success = self.playAudioFile(filePath: filePath)
+        result(success)
+      case "playAudioData":
+        let args = call.arguments as? [String: Any]
+        if let typedData = args?["data"] as? FlutterStandardTypedData {
+          let success = self.playAudioData(data: typedData.data)
+          result(success)
+        } else {
+          result(false)
+        }
       case "getVoices":
         let voices = AVSpeechSynthesisVoice.speechVoices()
           .filter { v in
@@ -531,7 +545,9 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
         self.resume()
         result(true)
       case "isSpeaking":
-        result(self.synthesizer.isSpeaking)
+        let isSynthSpeaking = self.synthesizer.isSpeaking
+        let isPlayerPlaying = self.audioPlayer?.isPlaying ?? false
+        result(isSynthSpeaking || isPlayerPlaying)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -727,9 +743,51 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
     return fallback
   }
 
+  func playAudioFile(filePath: String) -> Bool {
+    configureAudioSession()
+    stop()
+    let fileUrl = URL(fileURLWithPath: filePath)
+    do {
+      audioPlayer = try AVAudioPlayer(contentsOf: fileUrl)
+      audioPlayer?.delegate = self
+      audioPlayer?.prepareToPlay()
+      let started = audioPlayer?.play() ?? false
+      if started {
+        channel?.invokeMethod("onStart", arguments: nil)
+      }
+      return started
+    } catch {
+      print("[NativeTTS] Failed to play audio file: \(error)")
+      return false
+    }
+  }
+
+  func playAudioData(data: Data) -> Bool {
+    configureAudioSession()
+    stop()
+    do {
+      audioPlayer = try AVAudioPlayer(data: data)
+      audioPlayer?.delegate = self
+      audioPlayer?.prepareToPlay()
+      let started = audioPlayer?.play() ?? false
+      if started {
+        channel?.invokeMethod("onStart", arguments: nil)
+      }
+      return started
+    } catch {
+      print("[NativeTTS] Failed to play audio data: \(error)")
+      return false
+    }
+  }
+
   func stop() {
     if synthesizer.isSpeaking {
       synthesizer.stopSpeaking(at: .immediate)
+    }
+    if let player = audioPlayer, player.isPlaying {
+      player.stop()
+      audioPlayer = nil
+      channel?.invokeMethod("onComplete", arguments: nil)
     }
   }
 
@@ -737,11 +795,17 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
     if synthesizer.isSpeaking {
       synthesizer.pauseSpeaking(at: .immediate)
     }
+    if let player = audioPlayer, player.isPlaying {
+      player.pause()
+    }
   }
 
   func resume() {
     if synthesizer.isPaused {
       synthesizer.continueSpeaking()
+    }
+    if let player = audioPlayer, !player.isPlaying {
+      player.play()
     }
   }
 
@@ -770,5 +834,16 @@ class NativeTtsManager: NSObject, AVSpeechSynthesizerDelegate {
 
   func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
     channel?.invokeMethod("onCancel", arguments: nil)
+  }
+
+  // MARK: - AVAudioPlayerDelegate
+  func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+    audioPlayer = nil
+    channel?.invokeMethod("onComplete", arguments: nil)
+  }
+
+  func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+    audioPlayer = nil
+    channel?.invokeMethod("onComplete", arguments: nil)
   }
 }

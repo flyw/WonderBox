@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../voice/data/services/qwen3_tts_service.dart';
 import '../../data/services/tts_service.dart';
 import '../controllers/tts_controller.dart';
 
@@ -56,10 +57,24 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
         : '你好，我是 WonderBox 智能伴听助手，很高兴为你服务。';
     service.speak(
       text,
+      engine: TtsEngine.systemApple,
       rate: ttsState.rate,
       pitch: ttsState.pitch,
       voiceIdentifier: voiceId,
       lang: isEn ? 'en-US' : 'zh-CN',
+    );
+  }
+
+  void _previewQwen3Voice(String voiceId) {
+    final ttsState = ref.read(ttsControllerProvider);
+    final service = ref.read(ttsServiceProvider);
+    const text = '你好，我是 WonderBox 搭载的 Qwen3-TTS 0.6B 本地端侧大模型音色，很高兴与你实时对话。';
+    service.speak(
+      text,
+      engine: TtsEngine.qwen3Tts,
+      qwen3Voice: voiceId,
+      rate: ttsState.rate,
+      pitch: ttsState.pitch,
     );
   }
 
@@ -162,6 +177,29 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               children: [
+                // TTS Engine Switch
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: SegmentedButton<TtsEngine>(
+                    segments: const [
+                      ButtonSegment<TtsEngine>(
+                        value: TtsEngine.qwen3Tts,
+                        icon: Icon(Icons.auto_awesome, size: 16),
+                        label: Text('⚡ Qwen3-TTS (0.6B Q4)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                      ButtonSegment<TtsEngine>(
+                        value: TtsEngine.systemApple,
+                        icon: Icon(Icons.apple, size: 16),
+                        label: Text('🍎 Apple 系统音色', style: TextStyle(fontSize: 12)),
+                      ),
+                    ],
+                    selected: {ttsState.engine},
+                    onSelectionChanged: (newSelection) {
+                      notifier.setEngine(newSelection.first);
+                    },
+                  ),
+                ),
+
                 // Pitch and Rate Sliders
                 Container(
                   padding: const EdgeInsets.all(14),
@@ -237,88 +275,280 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
                 ),
                 const SizedBox(height: 14),
 
-                // Status & Download Guidance Banner
-                if (hasSiriVoice4)
+                if (ttsState.engine == TtsEngine.qwen3Tts) ...[
+                  // Qwen3 Model Status & Download Box
                   Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: Colors.deepPurple.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.deepPurple.withValues(alpha: 0.3)),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.check_circle_rounded,
-                            color: Colors.deepPurple, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                '已检测到 Siri Voice 4 (美国口音)',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.deepPurple,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                '系统已优先选中此音色。中文文本将自动音译为地道美式发音，英文输出将享受真人原生语调。',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.deepPurple.shade900,
-                                  height: 1.35,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                      color: Colors.deepPurple.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.deepPurple.withValues(alpha: 0.25)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            Icon(Icons.info_outline,
-                                color: Colors.amber.shade900, size: 18),
-                            const SizedBox(width: 8),
-                            Text(
-                              '如何添加 Siri Voice 4 (美国口音)',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.amber.shade900,
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: Colors.deepPurple.withValues(alpha: 0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.memory, color: Colors.deepPurple, size: 18),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    '千问 Qwen3-TTS 0.6B 本地端侧大模型',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                  Text(
+                                    '4-bit GGUF 量化 · 端侧神经语音合成 · 自然拟人表达',
+                                    style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+                                  ),
+                                ],
                               ),
                             ),
+                            if (ttsState.isQwen3Downloaded)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.check_circle, size: 12, color: Colors.green),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      '已就绪',
+                                      style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                              ),
                           ],
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '打开 iPhone「设置」→「辅助功能」→「朗读内容」→「声音」→「英语」→「Siri」→ 下载「声音 4 (Voice 4)」。下载完成后返回点击下方「刷新检测」，即可自动接入！',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.amber.shade900,
-                            height: 1.4,
-                          ),
-                        ),
+                        if (!ttsState.isQwen3Downloaded) ...[
+                          const SizedBox(height: 10),
+                          if (ttsState.qwen3DownloadProgress > 0 && ttsState.qwen3DownloadProgress < 1.0) ...[
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: LinearProgressIndicator(
+                                value: ttsState.qwen3DownloadProgress,
+                                backgroundColor: Colors.deepPurple.withValues(alpha: 0.1),
+                                color: Colors.deepPurple,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              ttsState.qwen3DownloadStatus ?? '正在下载...',
+                              style: const TextStyle(fontSize: 11, color: Colors.deepPurple),
+                            ),
+                          ] else ...[
+                            Row(
+                              children: [
+                                Text(
+                                  ttsState.qwen3DownloadStatus ?? '模型文件大小约 418 MB',
+                                  style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+                                ),
+                                const Spacer(),
+                                FilledButton.tonalIcon(
+                                  icon: const Icon(Icons.download, size: 14),
+                                  label: const Text('下载本地模型', style: TextStyle(fontSize: 12)),
+                                  style: FilledButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  ),
+                                  onPressed: () {
+                                    notifier.downloadQwen3Model();
+                                  },
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
                       ],
                     ),
                   ),
+
+                  // Qwen3 Presets Section
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 8),
+                    child: Text(
+                      'Qwen3-TTS 拟真大模型声线',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  ...Qwen3TtsService.presetVoices.map((voice) {
+                    final isSelected = ttsState.qwen3Voice == voice.id;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? Colors.deepPurple.withValues(alpha: 0.12)
+                            : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isSelected
+                              ? Colors.deepPurple
+                              : theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                          width: isSelected ? 1.5 : 1.0,
+                        ),
+                      ),
+                      child: ListTile(
+                        dense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                        leading: CircleAvatar(
+                          radius: 16,
+                          backgroundColor: isSelected
+                              ? Colors.deepPurple.withValues(alpha: 0.2)
+                              : theme.colorScheme.surfaceContainerHighest,
+                          child: Text(voice.iconEmoji, style: const TextStyle(fontSize: 16)),
+                        ),
+                        title: Row(
+                          children: [
+                            Text(
+                              voice.name,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                color: isSelected ? Colors.deepPurple : null,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            if (voice.id == 'vivian')
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: Colors.deepPurple.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text('推荐首选', style: TextStyle(fontSize: 9.5, color: Colors.deepPurple, fontWeight: FontWeight.bold)),
+                              ),
+                          ],
+                        ),
+                        subtitle: Text(
+                          voice.description,
+                          style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            TextButton.icon(
+                              icon: const Icon(Icons.volume_up, size: 14),
+                              label: const Text('试听', style: TextStyle(fontSize: 11)),
+                              style: TextButton.styleFrom(
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                              ),
+                              onPressed: () => _previewQwen3Voice(voice.id),
+                            ),
+                            Icon(
+                              isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                              color: isSelected ? Colors.deepPurple : theme.colorScheme.onSurfaceVariant,
+                              size: 18,
+                            ),
+                          ],
+                        ),
+                        onTap: () {
+                          notifier.setQwen3Voice(voice.id);
+                          _previewQwen3Voice(voice.id);
+                        },
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 12),
+                ] else ...[
+                  // Status & Download Guidance Banner
+                  if (hasSiriVoice4)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.deepPurple.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.deepPurple.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.check_circle_rounded,
+                              color: Colors.deepPurple, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  '已检测到 Siri Voice 4 (美国口音)',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.deepPurple,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '系统已优先选中此音色。中文文本将自动音译为地道美式发音，英文输出将享受真人原生语调。',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.deepPurple.shade900,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.info_outline,
+                                  color: Colors.amber.shade900, size: 18),
+                              const SizedBox(width: 8),
+                              Text(
+                                '如何添加 Siri Voice 4 (美国口音)',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.amber.shade900,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '打开 iPhone「设置」→「辅助功能」→「朗读内容」→「声音」→「英语」→「Siri」→ 下载「声音 4 (Voice 4)」。下载完成后返回点击下方「刷新检测」，即可自动接入！',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.amber.shade900,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
 
                 // Language Filter Tabs & Header
                 Row(
@@ -515,6 +745,7 @@ class _TtsVoiceSheetState extends ConsumerState<TtsVoiceSheet> {
                     ],
                   ),
                 ),
+                ],
               ],
             ),
           ),

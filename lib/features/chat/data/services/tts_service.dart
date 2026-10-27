@@ -1,9 +1,16 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../voice/data/services/qwen3_tts_service.dart';
+
+enum TtsEngine {
+  qwen3Tts,
+  systemApple,
+}
 
 final ttsServiceProvider = Provider<TtsService>((ref) {
-  final service = TtsService();
+  final qwen3TtsService = ref.watch(qwen3TtsServiceProvider);
+  final service = TtsService(qwen3TtsService);
   ref.onDispose(() {
     service.dispose();
   });
@@ -12,9 +19,10 @@ final ttsServiceProvider = Provider<TtsService>((ref) {
 
 class TtsService {
   static const _channel = MethodChannel('wonderbox/tts');
+  final Qwen3TtsService _qwen3TtsService;
   void Function(bool isSpeaking)? onSpeakingChanged;
 
-  TtsService() {
+  TtsService(this._qwen3TtsService) {
     _channel.setMethodCallHandler(_handleMethodCall);
   }
 
@@ -72,9 +80,11 @@ class TtsService {
     return cleaned.trim();
   }
 
-  /// Speaks the provided text via Apple's native AVSpeechSynthesizer
+  /// Speaks the provided text via Qwen3-TTS 0.6B Q4 (or Apple system fallback)
   Future<void> speak(
     String text, {
+    TtsEngine engine = TtsEngine.qwen3Tts,
+    String qwen3Voice = 'vivian',
     double rate = 0.5,
     double pitch = 1.0,
     String lang = 'zh-CN',
@@ -82,6 +92,26 @@ class TtsService {
   }) async {
     final clean = cleanMarkdown(text);
     if (clean.isEmpty) return;
+
+    if (engine == TtsEngine.qwen3Tts) {
+      try {
+        onSpeakingChanged?.call(true);
+        final speed = (rate * 2.0).clamp(0.5, 2.0);
+        final wavPath = await _qwen3TtsService.synthesizeToWav(
+          clean,
+          voice: qwen3Voice,
+          speed: speed,
+        );
+        if (wavPath != null) {
+          final success = await playAudioFile(wavPath);
+          if (success) {
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint('[TtsService] Qwen3-TTS synthesis failed, falling back to Apple TTS: $e');
+      }
+    }
 
     try {
       await _channel.invokeMethod('speak', {
@@ -93,6 +123,18 @@ class TtsService {
       });
     } catch (e) {
       debugPrint('[TtsService] Speak error: $e');
+      onSpeakingChanged?.call(false);
+    }
+  }
+
+  /// Plays a WAV / audio file generated locally
+  Future<bool> playAudioFile(String filePath) async {
+    try {
+      final success = await _channel.invokeMethod<bool>('playAudioFile', {'filePath': filePath});
+      return success ?? false;
+    } catch (e) {
+      debugPrint('[TtsService] playAudioFile error: $e');
+      return false;
     }
   }
 

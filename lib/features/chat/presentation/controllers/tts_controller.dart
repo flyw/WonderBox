@@ -2,12 +2,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/storage/preferences_provider.dart';
 import '../../../../core/storage/storage_keys.dart';
+import '../../../voice/data/services/qwen3_tts_model_manager.dart';
 import '../../data/services/tts_service.dart';
 
 class TtsState {
   final bool isSpeaking;
   final String? currentSpeakingMessageId;
   final bool isAutoSpeakEnabled;
+  final TtsEngine engine;
+  final String qwen3Voice;
+  final bool isQwen3Downloaded;
+  final double qwen3DownloadProgress;
+  final String? qwen3DownloadStatus;
   final String? selectedVoiceId;
   final String? selectedVoiceName;
   final double rate;
@@ -18,6 +24,11 @@ class TtsState {
     this.isSpeaking = false,
     this.currentSpeakingMessageId,
     this.isAutoSpeakEnabled = true,
+    this.engine = TtsEngine.qwen3Tts,
+    this.qwen3Voice = 'vivian',
+    this.isQwen3Downloaded = false,
+    this.qwen3DownloadProgress = 0.0,
+    this.qwen3DownloadStatus,
     this.selectedVoiceId,
     this.selectedVoiceName,
     this.rate = 0.5,
@@ -29,6 +40,11 @@ class TtsState {
     bool? isSpeaking,
     String? currentSpeakingMessageId,
     bool? isAutoSpeakEnabled,
+    TtsEngine? engine,
+    String? qwen3Voice,
+    bool? isQwen3Downloaded,
+    double? qwen3DownloadProgress,
+    String? qwen3DownloadStatus,
     String? selectedVoiceId,
     String? selectedVoiceName,
     double? rate,
@@ -39,6 +55,11 @@ class TtsState {
       isSpeaking: isSpeaking ?? this.isSpeaking,
       currentSpeakingMessageId: currentSpeakingMessageId,
       isAutoSpeakEnabled: isAutoSpeakEnabled ?? this.isAutoSpeakEnabled,
+      engine: engine ?? this.engine,
+      qwen3Voice: qwen3Voice ?? this.qwen3Voice,
+      isQwen3Downloaded: isQwen3Downloaded ?? this.isQwen3Downloaded,
+      qwen3DownloadProgress: qwen3DownloadProgress ?? this.qwen3DownloadProgress,
+      qwen3DownloadStatus: qwen3DownloadStatus ?? this.qwen3DownloadStatus,
       selectedVoiceId: selectedVoiceId ?? this.selectedVoiceId,
       selectedVoiceName: selectedVoiceName ?? this.selectedVoiceName,
       rate: rate ?? this.rate,
@@ -63,26 +84,78 @@ class TtsNotifier extends Notifier<TtsState> {
       );
     };
 
+    final savedEngineName = _prefs.getString(StorageKeys.ttsEngine);
+    final engine = savedEngineName == TtsEngine.systemApple.name
+        ? TtsEngine.systemApple
+        : TtsEngine.qwen3Tts; // Default to Qwen3-TTS
+    final savedQwen3Voice = _prefs.getString(StorageKeys.qwen3Voice) ?? 'vivian';
     final savedVoiceId = _prefs.getString(StorageKeys.ttsVoiceId);
     final savedVoiceName = _prefs.getString(StorageKeys.ttsVoiceName);
     final savedRate = _prefs.getDouble(StorageKeys.ttsRate) ?? 0.5;
     final savedPitch = _prefs.getDouble(StorageKeys.ttsPitch) ?? 1.0;
     final savedAutoSpeak = _prefs.getBool(StorageKeys.ttsAutoSpeak) ?? true;
 
-    // Load available iOS voices asynchronously
+    // Check Qwen3 model & load available iOS voices asynchronously
     Future.microtask(() {
       if (ref.mounted) {
+        checkQwen3ModelStatus();
         loadAvailableVoices();
       }
     });
 
     return TtsState(
+      engine: engine,
+      qwen3Voice: savedQwen3Voice,
       selectedVoiceId: savedVoiceId,
       selectedVoiceName: savedVoiceName,
       rate: savedRate,
       pitch: savedPitch,
       isAutoSpeakEnabled: savedAutoSpeak,
     );
+  }
+
+  Future<void> checkQwen3ModelStatus() async {
+    try {
+      final downloaded = await ref.read(qwen3TtsModelManagerProvider).isModelDownloaded();
+      if (!ref.mounted) return;
+      state = state.copyWith(isQwen3Downloaded: downloaded);
+    } catch (_) {}
+  }
+
+  Future<void> downloadQwen3Model() async {
+    final manager = ref.read(qwen3TtsModelManagerProvider);
+    state = state.copyWith(
+      qwen3DownloadProgress: 0.01,
+      qwen3DownloadStatus: '正在准备下载 Qwen3-TTS 0.6B Q4...',
+    );
+
+    try {
+      await manager.downloadModel(
+        onProgress: (progress, status) {
+          if (!ref.mounted) return;
+          state = state.copyWith(
+            qwen3DownloadProgress: progress,
+            qwen3DownloadStatus: status,
+            isQwen3Downloaded: progress >= 1.0,
+          );
+        },
+      );
+    } catch (e) {
+      if (!ref.mounted) return;
+      state = state.copyWith(
+        qwen3DownloadStatus: '下载中断，请点击重试',
+      );
+    }
+  }
+
+  void setEngine(TtsEngine engine) {
+    _prefs.setString(StorageKeys.ttsEngine, engine.name);
+    state = state.copyWith(engine: engine);
+  }
+
+  void setQwen3Voice(String voice) {
+    _prefs.setString(StorageKeys.qwen3Voice, voice);
+    state = state.copyWith(qwen3Voice: voice);
   }
 
   Future<void> loadAvailableVoices() async {
@@ -253,6 +326,8 @@ class TtsNotifier extends Notifier<TtsState> {
     state = state.copyWith(isSpeaking: true, currentSpeakingMessageId: messageId);
     await _service.speak(
       text,
+      engine: state.engine,
+      qwen3Voice: state.qwen3Voice,
       rate: state.rate,
       pitch: state.pitch,
       voiceIdentifier: state.selectedVoiceId,
@@ -264,6 +339,8 @@ class TtsNotifier extends Notifier<TtsState> {
     state = state.copyWith(isSpeaking: true);
     await _service.speak(
       text,
+      engine: state.engine,
+      qwen3Voice: state.qwen3Voice,
       rate: state.rate,
       pitch: state.pitch,
       voiceIdentifier: state.selectedVoiceId,
