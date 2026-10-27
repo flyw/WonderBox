@@ -39,14 +39,68 @@ class AmbientVoiceService {
   AmbientVoiceService(
     this._vadManager,
     this._paraformerService, {
-    this.vadThreshold = 0.50,
-    this.minSpeechDuration = 0.25,
+    this.vadThreshold = 0.40,
+    this.minSpeechDuration = 0.18,
     this.minSilenceDuration = 0.55,
-    this.minRmsThreshold = 0.020,
+    this.minRmsThreshold = 0.008,
   });
 
   bool get isListening => _isListening;
   bool get isMuted => _isMuted;
+
+  void updateConfig({
+    double? vadThreshold,
+    double? minRmsThreshold,
+    double? minSpeechDuration,
+    double? minSilenceDuration,
+  }) {
+    bool needVadRebuild = false;
+    if (vadThreshold != null && vadThreshold != this.vadThreshold) {
+      this.vadThreshold = vadThreshold;
+      needVadRebuild = true;
+    }
+    if (minSpeechDuration != null && minSpeechDuration != this.minSpeechDuration) {
+      this.minSpeechDuration = minSpeechDuration;
+      needVadRebuild = true;
+    }
+    if (minSilenceDuration != null && minSilenceDuration != this.minSilenceDuration) {
+      this.minSilenceDuration = minSilenceDuration;
+      needVadRebuild = true;
+    }
+    if (minRmsThreshold != null) {
+      this.minRmsThreshold = minRmsThreshold;
+    }
+    if (needVadRebuild && _isListening) {
+      _reconfigureVad();
+    }
+  }
+
+  Future<void> _reconfigureVad() async {
+    if (_vad == null) return;
+    try {
+      final vadModelPath = await _vadManager.getModelPath();
+      final vadConfig = sherpa_onnx.VadModelConfig(
+        tenVad: sherpa_onnx.TenVadModelConfig(
+          model: vadModelPath,
+          threshold: vadThreshold,
+          minSilenceDuration: minSilenceDuration,
+          minSpeechDuration: minSpeechDuration,
+          windowSize: 256,
+          maxSpeechDuration: 30.0,
+        ),
+        sampleRate: 16000,
+        debug: false,
+      );
+      _vad?.free();
+      _vad = sherpa_onnx.VoiceActivityDetector(
+        config: vadConfig,
+        bufferSizeInSeconds: 30,
+      );
+      debugPrint('[AmbientVoiceService] VAD reconfigured: threshold=$vadThreshold, minSpeech=$minSpeechDuration, minRms=$minRmsThreshold');
+    } catch (e) {
+      debugPrint('[AmbientVoiceService] Error reconfiguring VAD: $e');
+    }
+  }
 
   void setMuted(bool muted) {
     if (_isMuted == muted) return;
@@ -77,6 +131,7 @@ class AmbientVoiceService {
     required void Function(String phrase) onPhraseTranscribed,
     void Function(String liveText)? onLiveText,
     void Function(bool isSpeechDetected)? onSpeechDetectedChanged,
+    void Function(double currentRms, bool isEnergySufficient)? onRmsChanged,
     void Function(String error)? onError,
   }) async {
     if (_isListening) return true;
@@ -154,6 +209,7 @@ class AmbientVoiceService {
 
           // Check if acoustic energy meets the near-field physical volume threshold
           final isEnergySufficient = currentRms >= minRmsThreshold;
+          onRmsChanged?.call(currentRms, isEnergySufficient);
 
           final totalLength = residualSamples.length + newSamples.length;
           final combined = Float32List(totalLength);

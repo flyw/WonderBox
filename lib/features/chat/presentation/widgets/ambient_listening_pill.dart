@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../controllers/ambient_assistant_controller.dart';
+import 'vad_tuning_sheet.dart';
 
 class AmbientListeningPill extends ConsumerWidget {
   const AmbientListeningPill({super.key});
@@ -35,11 +36,14 @@ class AmbientListeningPill extends ConsumerWidget {
     }
 
     return Tooltip(
-      message: isListening ? '伴听模式运行中 (点击暂停)' : '点击启动 TEN VAD 自动伴听分析',
+      message: isListening ? '伴听模式运行中 (点击暂停，长按调优拾音距离)' : '点击启动 TEN VAD 自动伴听分析',
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
         onTap: () {
           notifier.toggleAmbientListening();
+        },
+        onLongPress: () {
+          VadTuningSheet.show(context);
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 250),
@@ -69,6 +73,13 @@ class AmbientListeningPill extends ConsumerWidget {
                   color: foregroundColor,
                 ),
               ),
+              if (isListening) ...[
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: () => VadTuningSheet.show(context),
+                  child: Icon(Icons.tune, size: 12, color: foregroundColor.withValues(alpha: 0.7)),
+                ),
+              ],
             ],
           ),
         ),
@@ -89,6 +100,7 @@ class AmbientStatusBar extends ConsumerWidget {
     final isRelevant = state.lastDecision == 'relevant';
     final isIgnored = state.lastDecision == 'ignored';
     final isSpeaking = state.liveText.isNotEmpty;
+    final isListening = state.isListening;
 
     Color bgColor;
     Color textColor;
@@ -110,7 +122,7 @@ class AmbientStatusBar extends ConsumerWidget {
       bgColor = theme.colorScheme.surfaceContainerHighest;
       textColor = theme.colorScheme.onSurfaceVariant;
       iconData = Icons.filter_alt_outlined;
-    } else if (state.isListening) {
+    } else if (isListening) {
       bgColor = theme.colorScheme.surfaceContainer;
       textColor = theme.colorScheme.onSurface;
       iconData = Icons.hearing_rounded;
@@ -120,36 +132,67 @@ class AmbientStatusBar extends ConsumerWidget {
       iconData = Icons.info_outline;
     }
 
-    final displayText = isError
-        ? state.errorMessage!
-        : (isSpeaking
-            ? '🎙️ 听到您在说: "${state.liveText}"'
-            : (state.isListening
-                ? state.statusMessage
-                : '💡 伴听模式已暂停 (点击右上角 [伴听模式] 胶囊可开启)'));
+    String displayText;
+    if (isError) {
+      displayText = state.errorMessage!;
+    } else if (isSpeaking) {
+      displayText = '🎙️ 正在输入: "${state.liveText}"';
+    } else if (isListening) {
+      final rmsText = 'RMS ${state.currentRms.toStringAsFixed(3)}/${state.minRmsThreshold.toStringAsFixed(3)}';
+      final vadText = 'VAD ${(state.vadThreshold * 100).toInt()}%';
+      displayText = '${state.statusMessage} · [$rmsText | $vadText]';
+    } else {
+      displayText = '💡 伴听模式已暂停 (点击右上角 [伴听模式] 胶囊可开启)';
+    }
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-      color: bgColor,
-      child: Row(
-        children: [
-          Icon(iconData, size: 15, color: textColor),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              displayText,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isSpeaking ? FontWeight.bold : FontWeight.normal,
-                color: textColor,
+    return InkWell(
+      onTap: () => VadTuningSheet.show(context),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        color: bgColor,
+        child: Row(
+          children: [
+            Icon(iconData, size: 15, color: textColor),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                displayText,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: isSpeaking ? FontWeight.bold : FontWeight.normal,
+                  color: textColor,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
-          ),
-        ],
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: textColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.tune, size: 11, color: textColor),
+                  const SizedBox(width: 2),
+                  Text(
+                    '调优',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -11,6 +11,7 @@ import '../controllers/tts_controller.dart';
 import '../widgets/ambient_listening_pill.dart';
 import '../widgets/stop_speaking_button.dart';
 import '../widgets/tts_toggle_pill.dart';
+import '../widgets/vad_distance_bar.dart';
 import '../widgets/chat_input_box.dart';
 import '../widgets/message_bubble.dart';
 
@@ -235,6 +236,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
                       ),
               ),
               const StopSpeakingButton(),
+              const VadDistanceBar(),
               const CameraConfigBar(),
               ChatInputBox(
                 isStreaming: chatState.isStreaming,

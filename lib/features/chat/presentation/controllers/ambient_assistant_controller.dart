@@ -16,6 +16,13 @@ class AmbientAssistantState {
   final String? lastTranscribedPhrase;
   final String? lastDecision;
   final String? errorMessage;
+  // Acoustic & VAD Diagnostics
+  final double currentRms;
+  final bool isEnergySufficient;
+  final double minRmsThreshold;
+  final double vadThreshold;
+  final double minSpeechDuration;
+  final double distanceRatio; // 0.0 (10cm 贴身) ~ 1.0 (3m 远场)
 
   const AmbientAssistantState({
     this.isEnabled = false,
@@ -26,6 +33,12 @@ class AmbientAssistantState {
     this.lastTranscribedPhrase,
     this.lastDecision,
     this.errorMessage,
+    this.currentRms = 0.0,
+    this.isEnergySufficient = false,
+    this.minRmsThreshold = 0.008,
+    this.vadThreshold = 0.40,
+    this.minSpeechDuration = 0.18,
+    this.distanceRatio = 0.45,
   });
 
   AmbientAssistantState copyWith({
@@ -37,6 +50,12 @@ class AmbientAssistantState {
     String? lastTranscribedPhrase,
     String? lastDecision,
     String? errorMessage,
+    double? currentRms,
+    bool? isEnergySufficient,
+    double? minRmsThreshold,
+    double? vadThreshold,
+    double? minSpeechDuration,
+    double? distanceRatio,
   }) {
     return AmbientAssistantState(
       isEnabled: isEnabled ?? this.isEnabled,
@@ -47,11 +66,19 @@ class AmbientAssistantState {
       lastTranscribedPhrase: lastTranscribedPhrase ?? this.lastTranscribedPhrase,
       lastDecision: lastDecision ?? this.lastDecision,
       errorMessage: errorMessage ?? this.errorMessage,
+      currentRms: currentRms ?? this.currentRms,
+      isEnergySufficient: isEnergySufficient ?? this.isEnergySufficient,
+      minRmsThreshold: minRmsThreshold ?? this.minRmsThreshold,
+      vadThreshold: vadThreshold ?? this.vadThreshold,
+      minSpeechDuration: minSpeechDuration ?? this.minSpeechDuration,
+      distanceRatio: distanceRatio ?? this.distanceRatio,
     );
   }
 }
 
 class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
+  int _lastRmsTimestamp = 0;
+
   @override
   AmbientAssistantState build() {
     final service = ref.read(ambientVoiceServiceProvider);
@@ -68,7 +95,63 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
       _syncMuteState();
     });
 
-    return const AmbientAssistantState();
+    return AmbientAssistantState(
+      minRmsThreshold: service.minRmsThreshold,
+      vadThreshold: service.vadThreshold,
+      minSpeechDuration: service.minSpeechDuration,
+    );
+  }
+
+  void updateVadConfig({
+    double? vadThreshold,
+    double? minRmsThreshold,
+    double? minSpeechDuration,
+  }) {
+    final service = ref.read(ambientVoiceServiceProvider);
+    service.updateConfig(
+      vadThreshold: vadThreshold,
+      minRmsThreshold: minRmsThreshold,
+      minSpeechDuration: minSpeechDuration,
+    );
+    state = state.copyWith(
+      vadThreshold: vadThreshold ?? state.vadThreshold,
+      minRmsThreshold: minRmsThreshold ?? state.minRmsThreshold,
+      minSpeechDuration: minSpeechDuration ?? state.minSpeechDuration,
+    );
+  }
+
+  /// Sets the VAD listening distance axis continuously:
+  /// ratio: 0.0 (10cm 贴近) ~ 0.45 (45cm 桌面推荐) ~ 1.0 (2.5m+ 远场全开)
+  void setDistanceRatio(double ratio) {
+    final clamped = ratio.clamp(0.0, 1.0);
+    double rms;
+    double vad;
+    double minSpeech;
+
+    if (clamped <= 0.45) {
+      final t = clamped / 0.45;
+      rms = 0.024 + (0.008 - 0.024) * t;
+      vad = 0.50 + (0.40 - 0.50) * t;
+      minSpeech = 0.25 + (0.18 - 0.25) * t;
+    } else {
+      final t = (clamped - 0.45) / 0.55;
+      rms = 0.008 + (0.002 - 0.008) * t;
+      vad = 0.40 + (0.32 - 0.40) * t;
+      minSpeech = 0.18 + (0.10 - 0.18) * t;
+    }
+
+    final service = ref.read(ambientVoiceServiceProvider);
+    service.updateConfig(
+      vadThreshold: vad,
+      minRmsThreshold: rms,
+      minSpeechDuration: minSpeech,
+    );
+    state = state.copyWith(
+      distanceRatio: clamped,
+      vadThreshold: vad,
+      minRmsThreshold: rms,
+      minSpeechDuration: minSpeech,
+    );
   }
 
   void _syncMuteState() {
@@ -116,6 +199,17 @@ class AmbientAssistantNotifier extends Notifier<AmbientAssistantState> {
           isSpeechActive: isDetected,
           statusMessage: isDetected ? '正在聆听发言...' : 'TEN VAD 伴听中 (静候短句)',
         );
+      },
+      onRmsChanged: (rms, isSufficient) {
+        if (service.isMuted) return;
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (now - _lastRmsTimestamp > 120) {
+          _lastRmsTimestamp = now;
+          state = state.copyWith(
+            currentRms: rms,
+            isEnergySufficient: isSufficient,
+          );
+        }
       },
       onLiveText: (text) {
         if (service.isMuted) return;
